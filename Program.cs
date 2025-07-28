@@ -851,12 +851,6 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         Photo = Convert.ToBase64String(location.Photo),
         MenuName = location.MenuName,
         HasMenu = location.MenuData.Length > 0,
-        Company = new
-        {
-            location.Company.Id,
-            location.Company.Name,
-            location.Company.Category
-        },
         location.CreatedAt,
         location.UpdatedAt
     };
