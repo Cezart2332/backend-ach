@@ -845,6 +845,7 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         location.Id,
         location.Name,
         location.Address,
+        location.Category,
         location.Latitude,
         location.Longitude,
         Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
