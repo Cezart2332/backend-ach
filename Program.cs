@@ -11,16 +11,14 @@ builder.Services.AddOpenApi();
 // Add CORS configuration
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("FlexibleCors", builder =>
+    options.AddPolicy("OpenCors", builder =>
     {
-        builder.SetIsOriginAllowed(origin => 
-                   origin.StartsWith("http://localhost:") || 
-                   origin.StartsWith("https://localhost:") ||
-                   origin == "https://acoomh.ro")
+        builder.AllowAnyOrigin()
                .AllowAnyMethod()
                .AllowAnyHeader();
     });
 });
+
 
 // Configure JSON options to handle circular references
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -81,7 +79,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseCors("FlexibleCors");
+app.UseCors("OpenCors");
 app.UseHttpsRedirection();
 app.MapControllers();
 
