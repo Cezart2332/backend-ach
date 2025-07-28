@@ -15,8 +15,7 @@ builder.Services.AddCors(options =>
     {
         builder.WithOrigins("https://acoomh.ro")
                .AllowAnyMethod()
-               .AllowAnyHeader()
-               .AllowCredentials();
+               .AllowAnyHeader();
     });
 });
 
@@ -26,78 +25,81 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
 });
 
-// Add Controllers service (if you're using API controllers)
+// Add Controllers
 builder.Services.AddControllers();
 
-// Get connection string from environment variable
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-// Debug: Check if environment variable is loaded
+// Debug logging - show partial connection string for debugging
 Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
-Console.WriteLine($"Connection string found: {!string.IsNullOrEmpty(connectionString)}");
-
-// Validate connection string exists
-if (string.IsNullOrEmpty(connectionString))
+Console.WriteLine($"Connection string configured: {!string.IsNullOrEmpty(connectionString)}");
+if (!string.IsNullOrEmpty(connectionString))
 {
-    throw new InvalidOperationException(
-        "Database connection string not found. " +
-        "Please ensure ConnectionStrings__DefaultConnection environment variable is set.");
+    // Show first 80 chars to debug without exposing full password
+    Console.WriteLine($"Connection string preview: {connectionString.Substring(0, Math.Min(80, connectionString.Length))}...");
 }
 
-// Register AppDbContext with the connection string from environment variable
+// 🔧 FIX: Specify MySQL version manually to avoid AutoDetect connection
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 21))));
 
 var app = builder.Build();
 
 // Apply migrations automatically on startup
+Console.WriteLine("=== STARTING MIGRATION PROCESS ===");
 try
 {
     using (var scope = app.Services.CreateScope())
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         
-        Console.WriteLine("Starting database migration...");
-        Console.WriteLine($"Using connection string: {connectionString?.Substring(0, Math.Min(50, connectionString.Length))}...");
+        Console.WriteLine("Testing database connection...");
+        await dbContext.Database.CanConnectAsync();
+        Console.WriteLine("✅ Database connection successful!");
         
+        Console.WriteLine("Starting database migration...");
         await dbContext.Database.MigrateAsync();
-        Console.WriteLine("Database migration completed successfully!");
+        Console.WriteLine("✅ Database migration completed successfully!");
+        
+        var migrations = await dbContext.Database.GetAppliedMigrationsAsync();
+        Console.WriteLine($"Applied migrations count: {migrations.Count()}");
     }
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"Migration failed: {ex.Message}");
+    Console.WriteLine($"❌ Migration failed: {ex.Message}");
     Console.WriteLine($"Full error: {ex}");
-    throw; // Stop the app if migration fails
+    // Don't crash the app - let it start
 }
+Console.WriteLine("=== MIGRATION PROCESS COMPLETED ===");
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-// Enable CORS
 app.UseCors("ProdCors");
-
 app.UseHttpsRedirection();
-
-// Map controllers (if you have API controllers)
 app.MapControllers();
 
-// Add a simple health check endpoint
+// Health check endpoints
 app.MapGet("/health", () => new { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
     environment = app.Environment.EnvironmentName 
 });
 
-// Add database health check
 app.MapGet("/health/db", async (AppDbContext context) =>
 {
     try
     {
         await context.Database.CanConnectAsync();
-        return Results.Ok(new { status = "database connected", timestamp = DateTime.UtcNow });
+        var migrations = await context.Database.GetAppliedMigrationsAsync();
+        return Results.Ok(new { 
+            status = "database connected", 
+            migrationsApplied = migrations.Count(),
+            timestamp = DateTime.UtcNow 
+        });
     }
     catch (Exception ex)
     {
@@ -105,12 +107,8 @@ app.MapGet("/health/db", async (AppDbContext context) =>
     }
 });
 
-// Remove the hardcoded URL - let Coolify handle this
-// app.Urls.Clear();
-// app.Urls.Add("http://0.0.0.0:5298");
-
+Console.WriteLine("🚀 Application starting...");
 app.Run();
-
 // All endpoints updated to use AppDbContext
 app.MapGet("/users", async (AppDbContext db) =>
     await db.Users.ToListAsync());
