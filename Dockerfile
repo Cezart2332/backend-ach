@@ -3,6 +3,7 @@ WORKDIR /src
 COPY . .
 RUN dotnet restore
 RUN dotnet tool install --global dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
 RUN dotnet publish -c Release -o /app
 RUN dotnet ef --version
 RUN dotnet ef database update
