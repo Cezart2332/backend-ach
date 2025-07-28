@@ -13,7 +13,7 @@ builder.Services.AddCors(options =>
 {
    options.AddPolicy("ProdCors", builder =>
 {
-    builder.WithOrigins("https://appdomeniu.ro")
+    builder.WithOrigins("https://acoomh.ro")
            .AllowAnyMethod()
            .AllowAnyHeader();
 });
