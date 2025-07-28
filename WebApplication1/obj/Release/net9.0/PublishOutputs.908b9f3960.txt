@@ -1,0 +1,15 @@
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\WebApplication1.exe
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\appsettings.Development.json
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\appsettings.json
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\WebApplication1.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\WebApplication1.runtimeconfig.json
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\WebApplication1.pdb
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\BCrypt.Net-Next.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Microsoft.AspNetCore.OpenApi.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Microsoft.EntityFrameworkCore.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Microsoft.EntityFrameworkCore.Abstractions.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Microsoft.EntityFrameworkCore.Relational.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Microsoft.OpenApi.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\MySqlConnector.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\Pomelo.EntityFrameworkCore.MySql.dll
+C:\Users\Cezar\Desktop\backend-ach\WebApplication1\bin\Release\net9.0\publish\WebApplication1.deps.json

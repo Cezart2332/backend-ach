@@ -11,12 +11,12 @@ builder.Services.AddOpenApi();
 // Add CORS configuration
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("ProdCors", builder =>
-    {
-        builder.WithOrigins("https://acoomh.ro")
-            .AllowAnyMethod()
-            .AllowAnyHeader();
-    });
+   options.AddPolicy("ProdCors", builder =>
+{
+    builder.WithOrigins("https://appdomeniu.ro")
+           .AllowAnyMethod()
+           .AllowAnyHeader();
+});
 });
 
 // Configure JSON options to handle circular references
@@ -52,10 +52,6 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
-builder.Services.AddResponseCompression();
-app.UseResponseCompression();
-
 
 // Enable CORS
 app.UseCors("ProdCors");
@@ -742,6 +738,7 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         l.Id,
         l.Name,
         l.Address,
+        l.Category,
         l.Latitude,
         l.Longitude,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
@@ -768,6 +765,7 @@ app.MapGet("/locations", async (AppDbContext db) =>
         l.Id,
         l.Name,
         l.Address,
+        l.Category,
         l.Latitude,
         l.Longitude,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
@@ -853,6 +851,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             CompanyId = companyId,
             Name = form["name"].ToString(),
             Address = form["address"].ToString(),
+            Category = form["category"].ToString(),
             Latitude = double.Parse(form["latitude"].ToString()),
             Longitude = double.Parse(form["longitude"].ToString()),
             Tags = form["tags"].ToString()
@@ -884,6 +883,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.Id,
             location.Name,
             location.Address,
+            location.Category,
             location.Latitude,
             location.Longitude,
             Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
