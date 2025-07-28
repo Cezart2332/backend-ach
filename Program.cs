@@ -108,7 +108,7 @@ app.MapGet("/health/db", async (AppDbContext context) =>
 });
 
 Console.WriteLine("🚀 Application starting...");
-app.Run();
+app.Urls.Add("http://0.0.0.0:8080");
 // All endpoints updated to use AppDbContext
 app.MapGet("/users", async (AppDbContext db) =>
     await db.Users.ToListAsync());
