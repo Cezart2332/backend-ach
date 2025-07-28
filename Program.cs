@@ -11,12 +11,13 @@ builder.Services.AddOpenApi();
 // Add CORS configuration
 builder.Services.AddCors(options =>
 {
-   options.AddPolicy("ProdCors", builder =>
-{
-    builder.WithOrigins("https://acoomh.ro")
-           .AllowAnyMethod()
-           .AllowAnyHeader();
-});
+    options.AddPolicy("ProdCors", builder =>
+    {
+        builder.WithOrigins("https://acoomh.ro")
+               .AllowAnyMethod()
+               .AllowAnyHeader()
+               .AllowCredentials();
+    });
 });
 
 // Configure JSON options to handle circular references
@@ -25,27 +26,49 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
 });
 
+// Add Controllers service (if you're using API controllers)
+builder.Services.AddControllers();
+
+// Get connection string from environment variable
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-// Register only the single AppDbContext
+// Debug: Check if environment variable is loaded
+Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
+Console.WriteLine($"Connection string found: {!string.IsNullOrEmpty(connectionString)}");
+
+// Validate connection string exists
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException(
+        "Database connection string not found. " +
+        "Please ensure ConnectionStrings__DefaultConnection environment variable is set.");
+}
+
+// Register AppDbContext with the connection string from environment variable
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
 var app = builder.Build();
 
 // Apply migrations automatically on startup
-using (var scope = app.Services.CreateScope())
+try
 {
-    try
+    using (var scope = app.Services.CreateScope())
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        dbContext.Database.Migrate();
-        Console.WriteLine("Migrations applied successfully");
+        
+        Console.WriteLine("Starting database migration...");
+        Console.WriteLine($"Using connection string: {connectionString?.Substring(0, Math.Min(50, connectionString.Length))}...");
+        
+        await dbContext.Database.MigrateAsync();
+        Console.WriteLine("Database migration completed successfully!");
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error applying migrations: {ex.Message}");
-    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Migration failed: {ex.Message}");
+    Console.WriteLine($"Full error: {ex}");
+    throw; // Stop the app if migration fails
 }
 
 if (app.Environment.IsDevelopment())
@@ -57,8 +80,36 @@ if (app.Environment.IsDevelopment())
 app.UseCors("ProdCors");
 
 app.UseHttpsRedirection();
-app.Urls.Clear();
-app.Urls.Add("http://0.0.0.0:5298");
+
+// Map controllers (if you have API controllers)
+app.MapControllers();
+
+// Add a simple health check endpoint
+app.MapGet("/health", () => new { 
+    status = "healthy", 
+    timestamp = DateTime.UtcNow,
+    environment = app.Environment.EnvironmentName 
+});
+
+// Add database health check
+app.MapGet("/health/db", async (AppDbContext context) =>
+{
+    try
+    {
+        await context.Database.CanConnectAsync();
+        return Results.Ok(new { status = "database connected", timestamp = DateTime.UtcNow });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Database connection failed: {ex.Message}");
+    }
+});
+
+// Remove the hardcoded URL - let Coolify handle this
+// app.Urls.Clear();
+// app.Urls.Add("http://0.0.0.0:5298");
+
+app.Run();
 
 // All endpoints updated to use AppDbContext
 app.MapGet("/users", async (AppDbContext db) =>
