@@ -4,6 +4,8 @@ COPY . .
 RUN dotnet restore
 RUN dotnet tool install --global dotnet-ef
 RUN dotnet publish -c Release -o /app
+RUN dotnet ef --version
+RUN dotnet ef database update
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
