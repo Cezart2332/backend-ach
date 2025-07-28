@@ -11,11 +11,11 @@ builder.Services.AddOpenApi();
 // Add CORS configuration
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.AddPolicy("ProdCors", builder =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        builder.WithOrigins("https://acoomh.ro")
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
@@ -53,8 +53,12 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+builder.Services.AddResponseCompression();
+app.UseResponseCompression();
+
+
 // Enable CORS
-app.UseCors();
+app.UseCors("ProdCors");
 
 app.UseHttpsRedirection();
 app.Urls.Clear();
