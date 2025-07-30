@@ -110,6 +110,7 @@ app.MapGet("/health/db", async (AppDbContext context) =>
 
 Console.WriteLine("🚀 Application starting...");
 app.Urls.Add("http://0.0.0.0:8080");
+
 // All endpoints updated to use AppDbContext
 app.MapGet("/users", async (AppDbContext db) =>
     await db.Users.ToListAsync());
@@ -136,6 +137,7 @@ app.MapPost("/users", async (HttpRequest req, AppDbContext db) =>
         FirstName = form["firstname"].ToString(),
         LastName = form["lastname"].ToString(),
         Email = form["email"].ToString(),
+        PhoneNumber = form["phoneNumber"].ToString(),
         Password = BCrypt.Net.BCrypt.HashPassword(form["password"].ToString()),
     };
     if (file != null && file.Length > 0)
@@ -148,22 +150,21 @@ app.MapPost("/users", async (HttpRequest req, AppDbContext db) =>
         ? Convert.ToBase64String(user.ProfileImage)
         : null;
 
-    int lastId = await db.Users
-        .OrderByDescending(u => u.Id)
-        .Select(u => u.Id)
-        .FirstOrDefaultAsync();
+     db.Users.Add(user);
+    await db.SaveChangesAsync();
+
     var userResponse = new UserResponse
     {
-        Id = lastId + 1,
+        Id = user.Id,
         Username = user.Username,
         FirstName = user.FirstName,
         LastName = user.LastName,
         Email = user.Email,
+        PhoneNumber = user.PhoneNumber,
         ProfileImage = pfpUser ?? string.Empty
     };
 
-    db.Users.Add(user);
-    await db.SaveChangesAsync();
+   
     return Results.Created($"/users/{user.Id}", userResponse);
 });
 
@@ -789,6 +790,7 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         l.Name,
         l.Address,
         l.Category,
+        l.PhoneNumber,
         l.Latitude,
         l.Longitude,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
@@ -816,12 +818,20 @@ app.MapGet("/locations", async (AppDbContext db) =>
         l.Name,
         l.Address,
         l.Category,
+        l.PhoneNumber,
         l.Latitude,
         l.Longitude,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(l.Photo),
         MenuName = l.MenuName,
         HasMenu = l.MenuData.Length > 0,
+        Company = new
+        {
+            l.Company.Id,
+            l.Company.Name,
+            l.Company.Category,
+            l.Company.Description
+        },
         l.CreatedAt,
         l.UpdatedAt
     }).ToList();
@@ -845,13 +855,18 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         location.Id,
         location.Name,
         location.Address,
-        location.Category,
         location.Latitude,
         location.Longitude,
         Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(location.Photo),
         MenuName = location.MenuName,
         HasMenu = location.MenuData.Length > 0,
+        Company = new
+        {
+            location.Company.Id,
+            location.Company.Name,
+            location.Company.Category
+        },
         location.CreatedAt,
         location.UpdatedAt
     };
@@ -890,6 +905,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             Name = form["name"].ToString(),
             Address = form["address"].ToString(),
             Category = form["category"].ToString(),
+            PhoneNumber = form["phoneNumber"].ToString(),
             Latitude = double.Parse(form["latitude"].ToString()),
             Longitude = double.Parse(form["longitude"].ToString()),
             Tags = form["tags"].ToString()
@@ -922,6 +938,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.Name,
             location.Address,
             location.Category,
+            location.PhoneNumber,
             location.Latitude,
             location.Longitude,
             Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
@@ -1265,8 +1282,19 @@ app.MapPost("/reservation", async (HttpRequest req, AppDbContext db) =>
         // Handle optional UserId (for users from main app)
         if (form.ContainsKey("userId") && !string.IsNullOrEmpty(form["userId"]))
         {
-            reservation.UserId = int.Parse(form["userId"].ToString());
+            var userId = int.Parse(form["userId"].ToString());
+            var userExists = await db.Users.AnyAsync(u => u.Id == userId);
+            if (userExists)
+            {
+                reservation.UserId = userId;
+            }
+            else
+            {
+                Console.WriteLine($"Warning: User with ID {userId} not found, creating reservation without user association");
+                // Continue without setting UserId - reservation will be created without user association
+            }
         }
+        Console.WriteLine("Phone number:" + reservation.CustomerPhone);
 
         db.Reservations.Add(reservation);
         await db.SaveChangesAsync();
