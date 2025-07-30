@@ -825,13 +825,6 @@ app.MapGet("/locations", async (AppDbContext db) =>
         Photo = Convert.ToBase64String(l.Photo),
         MenuName = l.MenuName,
         HasMenu = l.MenuData.Length > 0,
-        Company = new
-        {
-            l.Company.Id,
-            l.Company.Name,
-            l.Company.Category,
-            l.Company.Description
-        },
         l.CreatedAt,
         l.UpdatedAt
     }).ToList();
@@ -857,18 +850,14 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         location.Address,
         location.Latitude,
         location.Longitude,
+        location.Category,
         Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(location.Photo),
         MenuName = location.MenuName,
         HasMenu = location.MenuData.Length > 0,
-        Company = new
-        {
-            location.Company.Id,
-            location.Company.Name,
-            location.Company.Category
-        },
         location.CreatedAt,
-        location.UpdatedAt
+        location.UpdatedAt,
+        location.PhoneNumber
     };
         
     return Results.Ok(result);
