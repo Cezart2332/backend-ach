@@ -849,8 +849,8 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         location.Name,
         location.Address,
         location.Latitude,
-        location.Longitude,
         location.Category,
+        location.Longitude,
         Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(location.Photo),
         MenuName = location.MenuName,
@@ -1587,6 +1587,32 @@ app.MapGet("/debug/company", async (string email, AppDbContext db) =>
         PasswordStartsWith = company.Password?.Length > 0 ? company.Password.Substring(0, Math.Min(10, company.Password.Length)) : "",
         IsPasswordBCryptHashed = company.Password?.StartsWith("$2") ?? false
     });
+});
+
+// Change password endpoint for users
+app.MapPost("/users/{id:int}/change-password", async (int id, HttpRequest req, AppDbContext db) =>
+{
+    var form = await req.ReadFormAsync();
+    var currentPassword = form["currentPassword"].ToString();
+    var newPassword = form["newPassword"].ToString();
+
+    var user = await db.Users.FindAsync(id);
+    if (user == null)
+    {
+        return Results.NotFound(new { Error = "User not found" });
+    }
+
+    // Verify current password
+    if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.Password))
+    {
+        return Results.BadRequest(new { Error = "Current password is incorrect" });
+    }
+
+    // Hash and update new password
+    user.Password = BCrypt.Net.BCrypt.HashPassword(newPassword);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { Message = "Password changed successfully" });
 });
 
 app.Run();
