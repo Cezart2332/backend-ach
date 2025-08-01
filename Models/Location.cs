@@ -26,5 +26,6 @@ namespace WebApplication1.Models
         public Company Company { get; set; } = null!;
         public ICollection<Reservation> Reservations { get; set; } = new List<Reservation>();
         public ICollection<LocationHour> LocationHours { get; set; } = new List<LocationHour>();
+        public ICollection<MenuItem> MenuItems { get; set; } = new List<MenuItem>();
     }
 }

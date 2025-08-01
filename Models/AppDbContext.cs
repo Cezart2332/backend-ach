@@ -16,6 +16,7 @@ namespace WebApplication1.Models
         public DbSet<User> Users { get; set; }
         public DbSet<Reservation> Reservations { get; set; }
         public DbSet<Like> Likes { get; set; }
+        public DbSet<MenuItem> MenuItems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -127,6 +128,20 @@ namespace WebApplication1.Models
                 
             modelBuilder.Entity<Like>()
                 .HasIndex(l => l.CreatedAt);
+                
+            // Configure MenuItems
+            modelBuilder.Entity<MenuItem>().ToTable("menu_items");
+            modelBuilder.Entity<MenuItem>()
+                .HasOne(mi => mi.Location)
+                .WithMany(l => l.MenuItems)
+                .HasForeignKey(mi => mi.LocationId)
+                .OnDelete(DeleteBehavior.Cascade);
+                
+            modelBuilder.Entity<MenuItem>()
+                .HasIndex(mi => mi.LocationId);
+                
+            modelBuilder.Entity<MenuItem>()
+                .HasIndex(mi => mi.Category);
         }
     }
 }
