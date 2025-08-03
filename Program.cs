@@ -129,7 +129,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment(); // Allow HTTP in development
+    options.RequireHttpsMetadata = false; // Disable HTTPS requirement when behind reverse proxy
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -264,12 +264,9 @@ else
     Console.WriteLine("🔒 HSTS enabled for production");
 }
 
-// HTTPS redirection - flexible for development
-if (!builder.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Security:ForceHttps"))
-{
-    app.UseHttpsRedirection();
-    Console.WriteLine("🔒 HTTPS redirection enabled");
-}
+// HTTPS redirection - DISABLED for reverse proxy (Traefik handles this)
+// Don't use HTTPS redirection when behind a reverse proxy like Traefik
+// app.UseHttpsRedirection(); // Commented out to prevent conflicts with Traefik
 
 // Rate limiting - only in production unless explicitly enabled
 if (!builder.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Security:EnableRateLimiting"))
