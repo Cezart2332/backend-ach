@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WebApplication1.Models.Auth;
 
 namespace WebApplication1.Models
 {
@@ -17,6 +18,7 @@ namespace WebApplication1.Models
         public DbSet<Reservation> Reservations { get; set; }
         public DbSet<Like> Likes { get; set; }
         public DbSet<MenuItem> MenuItems { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -142,6 +144,36 @@ namespace WebApplication1.Models
                 
             modelBuilder.Entity<MenuItem>()
                 .HasIndex(mi => mi.Category);
+                
+            // Configure RefreshTokens
+            modelBuilder.Entity<RefreshToken>().ToTable("refresh_tokens");
+            modelBuilder.Entity<RefreshToken>()
+                .HasOne(rt => rt.User)
+                .WithMany(u => u.RefreshTokens)
+                .HasForeignKey(rt => rt.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+                
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(rt => rt.Token)
+                .IsUnique();
+                
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(rt => rt.UserId);
+                
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(rt => rt.ExpiresAt);
+                
+            // Configure Users security indices
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
+                .IsUnique();
+                
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Username)
+                .IsUnique();
+                
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.LastLoginAt);
         }
     }
 }
