@@ -202,6 +202,7 @@ namespace WebApplication1.Services
                 Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
                 JwtId = jwtId,
                 UserId = userId,
+                CompanyId = null, // No company for user tokens
                 ExpiresAt = DateTime.UtcNow.AddDays(7) // Longer-lived refresh token
             };
 
@@ -248,7 +249,8 @@ namespace WebApplication1.Services
             {
                 Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
                 JwtId = jwtId,
-                UserId = companyId, // Using UserId field for company ID (can be refactored later)
+                CompanyId = companyId, // Use CompanyId field for companies
+                UserId = null, // No user for company tokens
                 ExpiresAt = DateTime.UtcNow.AddDays(7) // Longer-lived refresh token
             };
 

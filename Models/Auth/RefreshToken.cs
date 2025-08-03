@@ -15,8 +15,9 @@ namespace WebApplication1.Models.Auth
         [Required]
         public string JwtId { get; set; } = string.Empty;
         
-        [Required]
-        public int UserId { get; set; }
+        public int? UserId { get; set; }
+        
+        public int? CompanyId { get; set; }
         
         [Required]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -32,8 +33,9 @@ namespace WebApplication1.Models.Auth
         
         public string? ReplacedByToken { get; set; }
 
-        // Navigation property
-        public User User { get; set; } = null!;
+        // Navigation properties
+        public User? User { get; set; }
+        public Company? Company { get; set; }
 
         public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
         public bool IsActive => !IsRevoked && !IsExpired;

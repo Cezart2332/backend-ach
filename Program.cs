@@ -450,20 +450,41 @@ app.MapPost("/auth/company-login", async (CompanyLoginRequestDto request, IAuthS
 {
     try
     {
+        // Add detailed logging for debugging
+        Log.Information("Company login attempt - Email: {Email}", request.Email);
+
+        // Validate required fields
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            Log.Warning("Company login failed: Email is required");
+            return Results.BadRequest(new { error = "Email is required" });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+        {
+            Log.Warning("Company login failed: Password is required");
+            return Results.BadRequest(new { error = "Password is required" });
+        }
+
         var ipAddress = GetClientIpAddress(context);
         var result = await authService.AuthenticateCompanyAsync(request, ipAddress);
         
         if (result == null)
         {
+            Log.Warning("Company login failed: Invalid credentials - Email: {Email}", request.Email);
             return Results.Unauthorized();
         }
+
+        Log.Information("Company login successful - Email: {Email}, CompanyId: {CompanyId}", 
+            request.Email, result.Company?.Id);
         
         return Results.Ok(result);
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Company login error for email: {Email}", request.Email);
-        return Results.Problem("An error occurred during authentication");
+        Log.Error(ex, "Company login error - Email: {Email}, Exception: {ExceptionType}", 
+            request.Email, ex.GetType().Name);
+        return Results.Problem($"An error occurred during authentication: {ex.Message}");
     }
 }).RequireRateLimiting("AuthPolicy")
   .WithTags("Company Authentication")
@@ -474,17 +495,47 @@ app.MapPost("/auth/company-register", async (CompanyRegisterRequestDto request, 
 {
     try
     {
+        // Add detailed logging for debugging
+        Log.Information("Company registration attempt - Email: {Email}, Name: {Name}", 
+            request.Email, request.Name);
+
+        // Validate required fields
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            Log.Warning("Company registration failed: Name is required");
+            return Results.BadRequest(new { error = "Company name is required" });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            Log.Warning("Company registration failed: Email is required");
+            return Results.BadRequest(new { error = "Email is required" });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+        {
+            Log.Warning("Company registration failed: Password is required");
+            return Results.BadRequest(new { error = "Password is required" });
+        }
+
         var result = await authService.RegisterCompanyAsync(request);
+        
+        Log.Information("Company registered successfully - Email: {Email}, CompanyId: {CompanyId}", 
+            request.Email, result.Company?.Id);
+            
         return Results.Created("/auth/company-me", result);
     }
     catch (ArgumentException ex)
     {
+        Log.Warning("Company registration conflict - Email: {Email}, Error: {Error}", 
+            request.Email, ex.Message);
         return Results.Conflict(new { error = ex.Message });
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Company registration error for email: {Email}", request.Email);
-        return Results.Problem("An error occurred during registration");
+        Log.Error(ex, "Company registration error - Email: {Email}, Name: {Name}, Exception: {ExceptionType}", 
+            request.Email, request.Name, ex.GetType().Name);
+        return Results.Problem($"An error occurred during registration: {ex.Message}");
     }
 }).RequireRateLimiting("AuthPolicy")
   .WithTags("Company Authentication")

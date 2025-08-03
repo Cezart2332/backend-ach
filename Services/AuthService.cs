@@ -195,65 +195,107 @@ namespace WebApplication1.Services
 
         public async Task<AuthResponseDto?> AuthenticateCompanyAsync(CompanyLoginRequestDto request, string ipAddress)
         {
-            var company = await _context.Companies
-                .FirstOrDefaultAsync(c => c.Email == request.Email);
-
-            if (company == null)
+            try
             {
-                _logger.LogWarning("Company authentication failed: Company not found. Email: {Email}, IP: {IpAddress}", 
+                _logger.LogInformation("Company authentication attempt - Email: {Email}, IP: {IpAddress}", 
                     request.Email, ipAddress);
-                return null;
-            }
 
-            if (!BCrypt.Net.BCrypt.Verify(request.Password, company.Password))
-            {
-                _logger.LogWarning("Company authentication failed: Invalid password. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                var company = await _context.Companies
+                    .FirstOrDefaultAsync(c => c.Email == request.Email);
+
+                if (company == null)
+                {
+                    _logger.LogWarning("Company authentication failed: Company not found. Email: {Email}, IP: {IpAddress}", 
+                        request.Email, ipAddress);
+                    return null;
+                }
+
+                _logger.LogInformation("Company found, verifying password - CompanyId: {CompanyId}", company.Id);
+
+                if (!BCrypt.Net.BCrypt.Verify(request.Password, company.Password))
+                {
+                    _logger.LogWarning("Company authentication failed: Invalid password. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                        company.Id, ipAddress);
+                    return null;
+                }
+
+                _logger.LogInformation("Password verified, generating tokens - CompanyId: {CompanyId}", company.Id);
+
+                var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
+                
+                _logger.LogInformation("Company authenticated successfully. CompanyId: {CompanyId}, IP: {IpAddress}", 
                     company.Id, ipAddress);
-                return null;
+
+                return authResponse;
             }
-
-            var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
-            
-            _logger.LogInformation("Company authenticated successfully. CompanyId: {CompanyId}, IP: {IpAddress}", 
-                company.Id, ipAddress);
-
-            return authResponse;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during company authentication for email: {Email}, IP: {IpAddress}", 
+                    request.Email, ipAddress);
+                throw;
+            }
         }
 
         public async Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request)
         {
-            // Check if company already exists
-            var existingCompany = await _context.Companies
-                .FirstOrDefaultAsync(c => c.Email == request.Email);
-
-            if (existingCompany != null)
+            try
             {
-                throw new ArgumentException("Company with this email already exists");
+                _logger.LogInformation("Starting company registration for email: {Email}", request.Email);
+
+                // Check if company already exists
+                var existingCompany = await _context.Companies
+                    .FirstOrDefaultAsync(c => c.Email == request.Email);
+
+                if (existingCompany != null)
+                {
+                    _logger.LogWarning("Company registration failed: Email already exists - {Email}", request.Email);
+                    throw new ArgumentException("Company with this email already exists");
+                }
+
+                // Parse CUI safely
+                int cuiValue = 0;
+                if (!string.IsNullOrEmpty(request.Cui))
+                {
+                    if (!int.TryParse(request.Cui, out cuiValue))
+                    {
+                        _logger.LogWarning("Company registration: Invalid CUI format - {Cui}", request.Cui);
+                        // Continue with CUI = 0 instead of failing
+                    }
+                }
+
+                // Create new company
+                var company = new Company
+                {
+                    Name = request.Name,
+                    Email = request.Email,
+                    Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                    Description = request.Description ?? string.Empty,
+                    Cui = cuiValue,
+                    Category = request.Category ?? string.Empty,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    IsActive = true
+                };
+
+                _logger.LogInformation("Company object created, adding to database - Email: {Email}", request.Email);
+
+                _context.Companies.Add(company);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Company saved to database - CompanyId: {CompanyId}", company.Id);
+
+                // Generate tokens for the new company
+                var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
+
+                _logger.LogInformation("Company registered successfully. CompanyId: {CompanyId}", company.Id);
+
+                return authResponse;
             }
-
-            // Create new company
-            var company = new Company
+            catch (Exception ex)
             {
-                Name = request.Name,
-                Email = request.Email,
-                Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
-                Description = request.Description,
-                Cui = string.IsNullOrEmpty(request.Cui) ? 0 : int.TryParse(request.Cui, out var cui) ? cui : 0,
-                Category = request.Category,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                IsActive = true
-            };
-
-            _context.Companies.Add(company);
-            await _context.SaveChangesAsync();
-
-            // Generate tokens for the new company
-            var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
-
-            _logger.LogInformation("Company registered successfully. CompanyId: {CompanyId}", company.Id);
-
-            return authResponse;
+                _logger.LogError(ex, "Error during company registration for email: {Email}", request.Email);
+                throw;
+            }
         }
     }
 }
