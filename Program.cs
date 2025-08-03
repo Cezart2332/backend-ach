@@ -98,6 +98,14 @@ builder.Services.AddRateLimiter(options =>
         configure.QueueLimit = 2;
     });
     
+    options.AddFixedWindowLimiter("FileUploadPolicy", configure =>
+    {
+        configure.PermitLimit = 10; // 10 file uploads per minute
+        configure.Window = TimeSpan.FromMinutes(1);
+        configure.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        configure.QueueLimit = 3;
+    });
+    
     options.AddFixedWindowLimiter("GeneralPolicy", configure =>
     {
         configure.PermitLimit = 100;
@@ -107,13 +115,21 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// Configure JWT Authentication - flexible for different environments
+// Configure JWT Authentication - secure configuration
 var jwtSecret = builder.Configuration["Jwt:Secret"] ?? builder.Configuration["JWT_SECRET"];
 if (string.IsNullOrEmpty(jwtSecret))
 {
-    // Development fallback
-    jwtSecret = "dev-secret-key-minimum-256-bits-for-development-only-change-in-production!";
-    Console.WriteLine("⚠️  Using development JWT secret - CHANGE IN PRODUCTION!");
+    if (builder.Environment.IsDevelopment())
+    {
+        // Development fallback with warning
+        jwtSecret = "dev-secret-key-minimum-256-bits-for-development-only-change-in-production!";
+        Console.WriteLine("⚠️  Using development JWT secret - CHANGE IN PRODUCTION!");
+    }
+    else
+    {
+        // Production: fail fast instead of using weak secret
+        throw new InvalidOperationException("JWT_SECRET environment variable is required in production. Please configure a secure JWT secret.");
+    }
 }
 else
 {
@@ -179,8 +195,8 @@ builder.Services.AddControllers();
 // Get connection string from configuration - Coolify compatible
 if (!string.IsNullOrEmpty(connectionString))
 {
-    // Show first 80 chars to debug without exposing full password
-    Console.WriteLine($"Connection string preview: {connectionString.Substring(0, Math.Min(80, connectionString.Length))}...");
+    // Don't log connection string details for security
+    Console.WriteLine("Database connection string configured successfully");
 }
 else
 {
@@ -842,23 +858,109 @@ app.MapPut("changepfp", async (HttpRequest req, AppDbContext db) =>
     var form = await req.ReadFormAsync();
 
     if (!form.TryGetValue("id", out var idValues) || !int.TryParse(idValues, out int userId))
+    {
         return Results.BadRequest("Missing or invalid 'id'");
+    }
 
     var file = form.Files.GetFile("file");
     if (file == null || file.Length == 0)
+    {
         return Results.BadRequest("Missing file");
+    }
+
+    // File validation
+    const long maxFileSize = 5 * 1024 * 1024; // 5MB
+    var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif" };
+    var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
+
+    // Check file size
+    if (file.Length > maxFileSize)
+    {
+        return Results.BadRequest("File size exceeds 5MB limit");
+    }
+
+    // Check content type
+    if (!allowedTypes.Contains(file.ContentType?.ToLower()))
+    {
+        return Results.BadRequest("Only JPEG, PNG and GIF images are allowed");
+    }
+
+    // Check file extension
+    var fileExtension = Path.GetExtension(file.FileName)?.ToLower();
+    if (string.IsNullOrEmpty(fileExtension) || !allowedExtensions.Contains(fileExtension))
+    {
+        return Results.BadRequest("Invalid file extension");
+    }
+
+    // Additional MIME type validation by reading file header
+    using var stream = file.OpenReadStream();
+    var buffer = new byte[8];
+    await stream.ReadAsync(buffer, 0, 8);
+    stream.Position = 0;
+
+    var isValidImage = IsValidImageFile(buffer, file.ContentType);
+    if (!isValidImage)
+    {
+        return Results.BadRequest("Invalid image file");
+    }
 
     var user = await db.Users.FindAsync(userId);
     if (user == null)
+    {
         return Results.NotFound();
+    }
 
     using var ms = new MemoryStream();
-    await file.OpenReadStream().CopyToAsync(ms);
+    await stream.CopyToAsync(ms);
     user.ProfileImage = ms.ToArray();
 
     await db.SaveChangesAsync();
     return Results.NoContent();
-});
+}).RequireRateLimiting("FileUploadPolicy");
+
+// Helper method for image validation
+static bool IsValidImageFile(byte[] fileHeader, string contentType)
+{
+    // JPEG: FF D8 FF
+    if (fileHeader.Length >= 3 && fileHeader[0] == 0xFF && fileHeader[1] == 0xD8 && fileHeader[2] == 0xFF)
+        return contentType?.Contains("jpeg") == true || contentType?.Contains("jpg") == true;
+    
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (fileHeader.Length >= 8 && fileHeader[0] == 0x89 && fileHeader[1] == 0x50 && 
+        fileHeader[2] == 0x4E && fileHeader[3] == 0x47)
+        return contentType?.Contains("png") == true;
+    
+    // GIF: 47 49 46 38
+    if (fileHeader.Length >= 4 && fileHeader[0] == 0x47 && fileHeader[1] == 0x49 && 
+        fileHeader[2] == 0x46 && fileHeader[3] == 0x38)
+        return contentType?.Contains("gif") == true;
+    
+    return false;
+}
+
+// Helper method for input sanitization
+static string SanitizeInput(string input)
+{
+    if (string.IsNullOrEmpty(input))
+        return string.Empty;
+    
+    // Remove HTML tags and dangerous characters
+    input = System.Web.HttpUtility.HtmlEncode(input);
+    
+    // Remove or escape SQL injection attempts
+    input = input.Replace("'", "&#x27;");
+    input = input.Replace("\"", "&quot;");
+    input = input.Replace("<", "&lt;");
+    input = input.Replace(">", "&gt;");
+    
+    // Remove script tags and javascript
+    input = System.Text.RegularExpressions.Regex.Replace(input, @"<script.*?</script>", "", 
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    input = System.Text.RegularExpressions.Regex.Replace(input, @"javascript:", "", 
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    
+    return input.Trim();
+}
 
 app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
 {
