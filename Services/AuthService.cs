@@ -10,6 +10,10 @@ namespace WebApplication1.Services
         Task<AuthResponseDto> RegisterAsync(RegisterRequestDto request);
         Task<bool> LogoutAsync(string refreshToken, string ipAddress);
         Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken, string ipAddress);
+        
+        // Company-specific methods
+        Task<AuthResponseDto?> AuthenticateCompanyAsync(CompanyLoginRequestDto request, string ipAddress);
+        Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request);
     }
 
     public class AuthService : IAuthService
@@ -187,6 +191,69 @@ namespace WebApplication1.Services
             user.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<AuthResponseDto?> AuthenticateCompanyAsync(CompanyLoginRequestDto request, string ipAddress)
+        {
+            var company = await _context.Companies
+                .FirstOrDefaultAsync(c => c.Email == request.Email);
+
+            if (company == null)
+            {
+                _logger.LogWarning("Company authentication failed: Company not found. Email: {Email}, IP: {IpAddress}", 
+                    request.Email, ipAddress);
+                return null;
+            }
+
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, company.Password))
+            {
+                _logger.LogWarning("Company authentication failed: Invalid password. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                    company.Id, ipAddress);
+                return null;
+            }
+
+            var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
+            
+            _logger.LogInformation("Company authenticated successfully. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                company.Id, ipAddress);
+
+            return authResponse;
+        }
+
+        public async Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request)
+        {
+            // Check if company already exists
+            var existingCompany = await _context.Companies
+                .FirstOrDefaultAsync(c => c.Email == request.Email);
+
+            if (existingCompany != null)
+            {
+                throw new ArgumentException("Company with this email already exists");
+            }
+
+            // Create new company
+            var company = new Company
+            {
+                Name = request.Name,
+                Email = request.Email,
+                Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                Description = request.Description,
+                Cui = string.IsNullOrEmpty(request.Cui) ? 0 : int.TryParse(request.Cui, out var cui) ? cui : 0,
+                Category = request.Category,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            _context.Companies.Add(company);
+            await _context.SaveChangesAsync();
+
+            // Generate tokens for the new company
+            var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
+
+            _logger.LogInformation("Company registered successfully. CompanyId: {CompanyId}", company.Id);
+
+            return authResponse;
         }
     }
 }

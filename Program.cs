@@ -444,6 +444,94 @@ app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
   .WithTags("Authentication")
   .WithOpenApi();
 
+// ==================== COMPANY AUTHENTICATION ENDPOINTS ====================
+
+app.MapPost("/auth/company-login", async (CompanyLoginRequestDto request, IAuthService authService, HttpContext context) =>
+{
+    try
+    {
+        var ipAddress = GetClientIpAddress(context);
+        var result = await authService.AuthenticateCompanyAsync(request, ipAddress);
+        
+        if (result == null)
+        {
+            return Results.Unauthorized();
+        }
+        
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Company login error for email: {Email}", request.Email);
+        return Results.Problem("An error occurred during authentication");
+    }
+}).RequireRateLimiting("AuthPolicy")
+  .WithTags("Company Authentication")
+  .WithOpenApi()
+  .Accepts<CompanyLoginRequestDto>("application/json");
+
+app.MapPost("/auth/company-register", async (CompanyRegisterRequestDto request, IAuthService authService) =>
+{
+    try
+    {
+        var result = await authService.RegisterCompanyAsync(request);
+        return Results.Created("/auth/company-me", result);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Conflict(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Company registration error for email: {Email}", request.Email);
+        return Results.Problem("An error occurred during registration");
+    }
+}).RequireRateLimiting("AuthPolicy")
+  .WithTags("Company Authentication")
+  .WithOpenApi()
+  .Accepts<CompanyRegisterRequestDto>("application/json");
+
+app.MapGet("/auth/company-me", async (HttpContext context, AppDbContext db) =>
+{
+    try
+    {
+        var companyId = context.User.FindFirst("sub")?.Value;
+        if (string.IsNullOrEmpty(companyId) || !int.TryParse(companyId, out var companyIdInt))
+        {
+            return Results.Unauthorized();
+        }
+
+        var company = await db.Companies.FindAsync(companyIdInt);
+        if (company == null || !company.IsActive)
+        {
+            return Results.NotFound();
+        }
+
+        var companyDto = new CompanyDto
+        {
+            Id = company.Id,
+            Name = company.Name,
+            Email = company.Email,
+            Description = company.Description,
+            Cui = company.Cui,
+            Category = company.Category,
+            Role = "Company",
+            Scopes = new List<string> { "company:read", "company:write" },
+            CreatedAt = company.CreatedAt,
+            IsActive = company.IsActive
+        };
+
+        return Results.Ok(companyDto);
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error retrieving company profile");
+        return Results.Problem("An error occurred while retrieving profile");
+    }
+}).RequireAuthorization()
+  .WithTags("Company Authentication")
+  .WithOpenApi();
+
 // ==================== LEGACY ENDPOINTS (TO BE MIGRATED) ==================== 
 
 // Note: The following endpoints need to be secured and migrated to use JWT authentication
