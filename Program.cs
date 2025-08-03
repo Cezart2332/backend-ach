@@ -644,55 +644,7 @@ app.MapPut("/users/{id:int}", async (int id, User input, AppDbContext db) =>
     return Results.NoContent();
 });
 
-app.MapPost("/login", async (LoginRequest req, AppDbContext db) =>
-{
-    // First, try to authenticate as a user
-    var user = await db.Users
-        .FirstOrDefaultAsync(u => u.Username == req.Username || u.Email == req.Username);
-    if (user != null && BCrypt.Net.BCrypt.Verify(req.Password, user.Password))
-    {
-        string? pfpUser = user.ProfileImage is not null
-            ? Convert.ToBase64String(user.ProfileImage)
-            : null;
-
-        var userResponse = new
-        {
-            Type = "User",
-            Id = user.Id,
-            Username = user.Username,
-            FirstName = user.FirstName,
-            LastName = user.LastName,
-            Email = user.Email,
-            ProfileImage = pfpUser
-        };
-        return Results.Ok(userResponse);
-    }
-
-    // If user authentication fails, try to authenticate as a company
-    var company = await db.Companies
-        .FirstOrDefaultAsync(c => c.Email == req.Username);
-    if (company != null && BCrypt.Net.BCrypt.Verify(req.Password, company.Password))
-    {
-        var companyResponse = new
-        {
-            Type = "Company",
-            Id = company.Id,
-            Name = company.Name,
-            Email = company.Email,
-            Address = "", // Will come from locations
-            Description = company.Description,
-            Tags = new List<string>(), // Will come from locations
-            Latitude = 0.0, // Will come from locations
-            Longitude = 0.0, // Will come from locations
-            Cui = company.Cui,
-            Category = company.Category
-        };
-        return Results.Ok(companyResponse);
-    }
-
-    return Results.Unauthorized();
-});
-
+// ==================== USER ENDPOINTS ====================
 app.MapPost("/companies", async (HttpRequest req, AppDbContext db) =>
 {
     try

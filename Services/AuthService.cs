@@ -29,42 +29,65 @@ namespace WebApplication1.Services
 
         public async Task<AuthResponseDto?> AuthenticateAsync(LoginRequestDto request, string ipAddress)
         {
+            // First, try to authenticate as a user
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => (u.Username == request.Username || u.Email == request.Username) && u.IsActive);
 
-            if (user == null)
+            if (user != null)
             {
-                _logger.LogWarning("Authentication failed: User not found. Username/Email: {Username}, IP: {IpAddress}", 
-                    request.Username, ipAddress);
-                return null;
-            }
+                // Check if account is locked
+                if (user.IsLocked)
+                {
+                    _logger.LogWarning("Authentication failed: Account locked. UserId: {UserId}, IP: {IpAddress}", 
+                        user.Id, ipAddress);
+                    return null;
+                }
 
-            // Check if account is locked
-            if (user.IsLocked)
-            {
-                _logger.LogWarning("Authentication failed: Account locked. UserId: {UserId}, IP: {IpAddress}", 
+                // Verify password
+                if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+                {
+                    await HandleFailedLoginAsync(user, ipAddress);
+                    _logger.LogWarning("Authentication failed: Invalid password. UserId: {UserId}, IP: {IpAddress}", 
+                        user.Id, ipAddress);
+                    return null;
+                }
+
+                // Reset failed login attempts on successful login
+                await HandleSuccessfulLoginAsync(user, ipAddress);
+
+                var authResponse = await _jwtService.GenerateTokensAsync(user);
+                
+                _logger.LogInformation("User authenticated successfully. UserId: {UserId}, IP: {IpAddress}", 
                     user.Id, ipAddress);
-                return null;
+                
+                return authResponse;
             }
 
-            // Verify password
-            if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+            // If user authentication fails, try to authenticate as a company
+            var company = await _context.Companies
+                .FirstOrDefaultAsync(c => c.Email == request.Username);
+
+            if (company != null)
             {
-                await HandleFailedLoginAsync(user, ipAddress);
-                _logger.LogWarning("Authentication failed: Invalid password. UserId: {UserId}, IP: {IpAddress}", 
-                    user.Id, ipAddress);
-                return null;
+                // Verify password
+                if (!BCrypt.Net.BCrypt.Verify(request.Password, company.Password))
+                {
+                    _logger.LogWarning("Authentication failed: Invalid company password. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                        company.Id, ipAddress);
+                    return null;
+                }
+
+                var authResponse = await _jwtService.GenerateTokensForCompanyAsync(company);
+                
+                _logger.LogInformation("Company authenticated successfully. CompanyId: {CompanyId}, IP: {IpAddress}", 
+                    company.Id, ipAddress);
+                
+                return authResponse;
             }
 
-            // Reset failed login attempts on successful login
-            await HandleSuccessfulLoginAsync(user, ipAddress);
-
-            var authResponse = await _jwtService.GenerateTokensAsync(user);
-            
-            _logger.LogInformation("User authenticated successfully. UserId: {UserId}, IP: {IpAddress}", 
-                user.Id, ipAddress);
-            
-            return authResponse;
+            _logger.LogWarning("Authentication failed: User/Company not found. Username/Email: {Username}, IP: {IpAddress}", 
+                request.Username, ipAddress);
+            return null;
         }
 
         public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto request)

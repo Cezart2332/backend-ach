@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace WebApplication1.Models.Auth
 {
@@ -29,12 +30,28 @@ namespace WebApplication1.Models.Auth
 
     public class UserDto
     {
+        [JsonPropertyName("id")]
         public int Id { get; set; }
+        
+        [JsonPropertyName("username")]
         public string Username { get; set; } = string.Empty;
+        
+        [JsonPropertyName("firstName")]
         public string FirstName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("lastName")]
         public string LastName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("email")]
         public string Email { get; set; } = string.Empty;
+        
+        [JsonPropertyName("role")]
         public string Role { get; set; } = "User";
+        
+        [JsonPropertyName("profileImage")]
+        public string? ProfileImage { get; set; }
+        
+        [JsonPropertyName("scopes")]
         public List<string> Scopes { get; set; } = new();
     }
 

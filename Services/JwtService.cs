@@ -12,6 +12,7 @@ namespace WebApplication1.Services
     public interface IJwtService
     {
         Task<AuthResponseDto> GenerateTokensAsync(User user);
+        Task<AuthResponseDto> GenerateTokensForCompanyAsync(Company company);
         Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken, string ipAddress);
         Task<bool> RevokeTokenAsync(string refreshToken, string ipAddress);
         ClaimsPrincipal? ValidateToken(string token);
@@ -49,7 +50,32 @@ namespace WebApplication1.Services
                     LastName = user.LastName,
                     Email = user.Email,
                     Role = "User", // You can extend this based on your user roles
+                    ProfileImage = user.ProfileImage != null ? Convert.ToBase64String(user.ProfileImage) : null,
                     Scopes = new List<string> { "read", "write" } // Define based on user permissions
+                }
+            };
+        }
+
+        public async Task<AuthResponseDto> GenerateTokensForCompanyAsync(Company company)
+        {
+            var jwtId = Guid.NewGuid().ToString();
+            var accessToken = GenerateAccessTokenForCompany(company, jwtId);
+            var refreshToken = await GenerateRefreshTokenForCompanyAsync(company.Id, jwtId);
+
+            return new AuthResponseDto
+            {
+                AccessToken = accessToken,
+                RefreshToken = refreshToken.Token,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15), // Short-lived access token
+                User = new UserDto
+                {
+                    Id = company.Id,
+                    Username = company.Name, // Company name as username
+                    FirstName = company.Name,
+                    LastName = "", // Companies don't have last names
+                    Email = company.Email,
+                    Role = "Company",
+                    Scopes = new List<string> { "read", "write", "manage" } // Companies get additional permissions
                 }
             };
         }
@@ -171,6 +197,53 @@ namespace WebApplication1.Services
                 Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
                 JwtId = jwtId,
                 UserId = userId,
+                ExpiresAt = DateTime.UtcNow.AddDays(7) // Longer-lived refresh token
+            };
+
+            _context.RefreshTokens.Add(refreshToken);
+            await _context.SaveChangesAsync();
+
+            return refreshToken;
+        }
+
+        private string GenerateAccessTokenForCompany(Company company, string jwtId)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret not configured"));
+
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, company.Id.ToString()),
+                new Claim(JwtRegisteredClaimNames.Email, company.Email),
+                new Claim(JwtRegisteredClaimNames.Jti, jwtId),
+                new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+                new Claim("username", company.Name),
+                new Claim("firstName", company.Name),
+                new Claim("lastName", ""),
+                new Claim("role", "Company"),
+                new Claim("scope", "read write manage")
+            };
+
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(claims),
+                Expires = DateTime.UtcNow.AddMinutes(15), // Short-lived access token
+                Issuer = _configuration["Jwt:Issuer"],
+                Audience = _configuration["Jwt:Audience"],
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+            };
+
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+            return tokenHandler.WriteToken(token);
+        }
+
+        private async Task<RefreshToken> GenerateRefreshTokenForCompanyAsync(int companyId, string jwtId)
+        {
+            var refreshToken = new RefreshToken
+            {
+                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+                JwtId = jwtId,
+                UserId = companyId, // Using UserId field for company ID (can be refactored later)
                 ExpiresAt = DateTime.UtcNow.AddDays(7) // Longer-lived refresh token
             };
 
