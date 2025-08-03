@@ -474,7 +474,7 @@ app.MapPost("/auth/company-login", async (CompanyLoginRequestDto request, IAuthS
             Log.Warning("Company login failed: Invalid credentials - Email: {Email}", request.Email);
             return Results.Unauthorized();
         }
-
+        
         Log.Information("Company login successful - Email: {Email}, CompanyId: {CompanyId}", 
             request.Email, result.Company?.Id);
         

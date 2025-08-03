@@ -50,7 +50,7 @@ namespace WebApplication1.Services
                     LastName = user.LastName,
                     Email = user.Email,
                     Role = "User", // You can extend this based on your user roles
-                    ProfileImage = user.ProfileImage != null ? Convert.ToBase64String(user.ProfileImage) : null,
+                    ProfileImage = user.ProfileImage != null && user.ProfileImage.Length > 0 ? Convert.ToBase64String(user.ProfileImage) : null,
                     Scopes = new List<string> { "read", "write" } // Define based on user permissions
                 },
                 Company = null // No company data for user auth
