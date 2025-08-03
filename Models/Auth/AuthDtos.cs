@@ -25,7 +25,8 @@ namespace WebApplication1.Models.Auth
         public string AccessToken { get; set; } = string.Empty;
         public string RefreshToken { get; set; } = string.Empty;
         public DateTime ExpiresAt { get; set; }
-        public UserDto User { get; set; } = new();
+        public UserDto? User { get; set; }
+        public CompanyDto? Company { get; set; }
     }
 
     public class UserDto
@@ -53,6 +54,39 @@ namespace WebApplication1.Models.Auth
         
         [JsonPropertyName("scopes")]
         public List<string> Scopes { get; set; } = new();
+    }
+
+    public class CompanyDto
+    {
+        [JsonPropertyName("id")]
+        public int Id { get; set; }
+        
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+        
+        [JsonPropertyName("email")]
+        public string Email { get; set; } = string.Empty;
+        
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = string.Empty;
+        
+        [JsonPropertyName("cui")]
+        public int Cui { get; set; }
+        
+        [JsonPropertyName("category")]
+        public string Category { get; set; } = string.Empty;
+        
+        [JsonPropertyName("role")]
+        public string Role { get; set; } = "Company";
+        
+        [JsonPropertyName("scopes")]
+        public List<string> Scopes { get; set; } = new();
+        
+        [JsonPropertyName("createdAt")]
+        public DateTime CreatedAt { get; set; }
+        
+        [JsonPropertyName("isActive")]
+        public bool IsActive { get; set; }
     }
 
     public class RegisterRequestDto

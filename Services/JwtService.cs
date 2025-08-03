@@ -52,7 +52,8 @@ namespace WebApplication1.Services
                     Role = "User", // You can extend this based on your user roles
                     ProfileImage = user.ProfileImage != null ? Convert.ToBase64String(user.ProfileImage) : null,
                     Scopes = new List<string> { "read", "write" } // Define based on user permissions
-                }
+                },
+                Company = null // No company data for user auth
             };
         }
 
@@ -67,15 +68,19 @@ namespace WebApplication1.Services
                 AccessToken = accessToken,
                 RefreshToken = refreshToken.Token,
                 ExpiresAt = DateTime.UtcNow.AddMinutes(15), // Short-lived access token
-                User = new UserDto
+                User = null, // No user data for company auth
+                Company = new CompanyDto
                 {
                     Id = company.Id,
-                    Username = company.Name, // Company name as username
-                    FirstName = company.Name,
-                    LastName = "", // Companies don't have last names
+                    Name = company.Name,
                     Email = company.Email,
+                    Description = company.Description,
+                    Cui = company.Cui,
+                    Category = company.Category,
                     Role = "Company",
-                    Scopes = new List<string> { "read", "write", "manage" } // Companies get additional permissions
+                    Scopes = new List<string> { "read", "write", "manage" },
+                    CreatedAt = company.CreatedAt,
+                    IsActive = company.IsActive
                 }
             };
         }

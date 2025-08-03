@@ -96,31 +96,61 @@ namespace WebApplication1.Services
             var existingUser = await _context.Users
                 .AnyAsync(u => u.Username == request.Username || u.Email == request.Email);
 
-            if (existingUser)
+            // Check if company already exists
+            var existingCompany = await _context.Companies
+                .AnyAsync(c => c.Email == request.Email);
+
+            if (existingUser || existingCompany)
             {
-                throw new ArgumentException("User with this username or email already exists");
+                throw new ArgumentException("User or company with this username or email already exists");
             }
 
-            var user = new User
+            // If FirstName is empty and LastName is empty, treat as company registration
+            if (string.IsNullOrEmpty(request.FirstName) && string.IsNullOrEmpty(request.LastName))
             {
-                Username = request.Username,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                Email = request.Email,
-                PhoneNumber = request.PhoneNumber,
-                Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
-                Role = "User",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
+                // Register as company
+                var company = new Company
+                {
+                    Name = request.Username,
+                    Email = request.Email,
+                    Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+                _context.Companies.Add(company);
+                await _context.SaveChangesAsync();
 
-            _logger.LogInformation("New user registered. UserId: {UserId}, Email: {Email}", user.Id, user.Email);
+                _logger.LogInformation("New company registered. CompanyId: {CompanyId}, Email: {Email}", 
+                    company.Id, company.Email);
 
-            return await _jwtService.GenerateTokensAsync(user);
+                return await _jwtService.GenerateTokensForCompanyAsync(company);
+            }
+            else
+            {
+                // Register as user
+                var user = new User
+                {
+                    Username = request.Username,
+                    FirstName = request.FirstName,
+                    LastName = request.LastName,
+                    Email = request.Email,
+                    PhoneNumber = request.PhoneNumber,
+                    Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                    Role = "User",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("New user registered. UserId: {UserId}, Email: {Email}", 
+                    user.Id, user.Email);
+
+                return await _jwtService.GenerateTokensAsync(user);
+            }
         }
 
         public async Task<bool> LogoutAsync(string refreshToken, string ipAddress)
