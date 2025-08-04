@@ -19,6 +19,7 @@ namespace WebApplication1.Models
         public DbSet<Like> Likes { get; set; }
         public DbSet<MenuItem> MenuItems { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
+        public DbSet<BugReport> BugReports { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -174,6 +175,17 @@ namespace WebApplication1.Models
                 
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.LastLoginAt);
+                
+            // Configure BugReports
+            modelBuilder.Entity<BugReport>().ToTable("bug_reports");
+            modelBuilder.Entity<BugReport>()
+                .HasIndex(br => br.CreatedAt);
+                
+            modelBuilder.Entity<BugReport>()
+                .HasIndex(br => br.IsResolved);
+                
+            modelBuilder.Entity<BugReport>()
+                .HasIndex(br => br.Username);
         }
     }
 }

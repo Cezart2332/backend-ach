@@ -2325,4 +2325,128 @@ app.MapGet("/debug/company", async (string email, AppDbContext db) =>
     });
 });
 
+// Bug Report Endpoints
+app.MapPost("/api/BugReport", async (BugReportDto request, AppDbContext db, HttpContext context) =>
+{
+    try
+    {
+        // Validate the request
+        if (string.IsNullOrWhiteSpace(request.Username) ||
+            string.IsNullOrWhiteSpace(request.Title) ||
+            string.IsNullOrWhiteSpace(request.Description) ||
+            string.IsNullOrWhiteSpace(request.DeviceType))
+        {
+            return Results.BadRequest("All fields except DeviceInfo are required.");
+        }
+
+        if (request.Title.Trim().Length < 5)
+        {
+            return Results.BadRequest("Title must be at least 5 characters long.");
+        }
+
+        if (request.Description.Trim().Length < 10)
+        {
+            return Results.BadRequest("Description must be at least 10 characters long.");
+        }
+
+        var validDeviceTypes = new[] { "ios", "android" };
+        if (!validDeviceTypes.Contains(request.DeviceType.ToLower()))
+        {
+            return Results.BadRequest("DeviceType must be either 'ios' or 'android'.");
+        }
+
+        // Create the bug report
+        var bugReport = new BugReport
+        {
+            Username = request.Username.Trim(),
+            Title = request.Title.Trim(),
+            Description = request.Description.Trim(),
+            DeviceType = request.DeviceType.ToLower(),
+            DeviceInfo = request.DeviceInfo?.Trim(),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        db.BugReports.Add(bugReport);
+        await db.SaveChangesAsync();
+
+        var response = new BugReportResponse
+        {
+            Id = bugReport.Id,
+            Username = bugReport.Username,
+            Title = bugReport.Title,
+            Description = bugReport.Description,
+            DeviceType = bugReport.DeviceType,
+            DeviceInfo = bugReport.DeviceInfo,
+            CreatedAt = bugReport.CreatedAt,
+            IsResolved = bugReport.IsResolved,
+            AdminNotes = bugReport.AdminNotes
+        };
+
+        return Results.Created($"/api/BugReport/{bugReport.Id}", response);
+    }
+    catch (Exception ex)
+    {
+        var ipAddress = GetClientIpAddress(context);
+        Log.Error(ex, "Error creating bug report from IP {IpAddress}: {Request}", ipAddress, request);
+        return Results.Problem("An error occurred while submitting your bug report. Please try again later.");
+    }
+})
+.WithName("CreateBugReport")
+.WithSummary("Submit a bug report")
+.WithDescription("Submit a bug report with title, description, and device information");
+
+// GET bug reports (admin only - could be protected with authentication later)
+app.MapGet("/api/BugReport", async (AppDbContext db, int? page = 1, int? pageSize = 20, bool? resolved = null) =>
+{
+    try
+    {
+        var query = db.BugReports.AsQueryable();
+
+        if (resolved.HasValue)
+        {
+            query = query.Where(br => br.IsResolved == resolved.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+        var pageNum = page ?? 1;
+        var pageSizeNum = pageSize ?? 20;
+        var skip = (pageNum - 1) * pageSizeNum;
+
+        var bugReports = await query
+            .OrderByDescending(br => br.CreatedAt)
+            .Skip(skip)
+            .Take(pageSizeNum)
+            .Select(br => new BugReportResponse
+            {
+                Id = br.Id,
+                Username = br.Username,
+                Title = br.Title,
+                Description = br.Description,
+                DeviceType = br.DeviceType,
+                DeviceInfo = br.DeviceInfo,
+                CreatedAt = br.CreatedAt,
+                IsResolved = br.IsResolved,
+                AdminNotes = br.AdminNotes
+            })
+            .ToListAsync();
+
+        return Results.Ok(new
+        {
+            data = bugReports,
+            totalCount,
+            page = pageNum,
+            pageSize = pageSizeNum,
+            totalPages = (int)Math.Ceiling((double)totalCount / pageSizeNum)
+        });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error fetching bug reports");
+        return Results.Problem("An error occurred while fetching bug reports.");
+    }
+})
+.WithName("GetBugReports")
+.WithSummary("Get bug reports")
+.WithDescription("Get paginated list of bug reports with optional filtering");
+
 app.Run();
