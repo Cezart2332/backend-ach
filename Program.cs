@@ -15,13 +15,11 @@ using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Threading.Tasks;
 
-// Configure Serilog without dependency model
+// Configure Serilog
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
-    .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
-    .WriteTo.Console()
-    .WriteTo.File("logs/app-.txt", rollingInterval: RollingInterval.Day)
+    .ReadFrom.Configuration(new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .Build())
     .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -854,152 +852,88 @@ app.MapPost("/companies", async (HttpRequest req, AppDbContext db) =>
 
 app.MapPut("changepfp", async (HttpRequest req, AppDbContext db) =>
 {
-    try
+    if (!req.HasFormContentType)
+        return Results.BadRequest("Expected multipart form-data");
+
+    var form = await req.ReadFormAsync();
+
+    if (!form.TryGetValue("id", out var idValues) || !int.TryParse(idValues, out int userId))
     {
-        Console.WriteLine("Profile picture upload request received");
-        
-        if (!req.HasFormContentType)
-        {
-            Console.WriteLine("Request is not multipart form-data");
-            return Results.BadRequest("Expected multipart form-data");
-        }
-
-        var form = await req.ReadFormAsync();
-        Console.WriteLine($"Form fields: {string.Join(", ", form.Keys)}");
-
-        if (!form.TryGetValue("id", out var idValues) || !int.TryParse(idValues, out int userId))
-        {
-            Console.WriteLine($"Invalid or missing user ID: {idValues}");
-            return Results.BadRequest("Missing or invalid 'id'");
-        }
-
-        var file = form.Files.GetFile("file");
-        if (file == null || file.Length == 0)
-        {
-            Console.WriteLine("No file provided in request");
-            return Results.BadRequest("Missing file");
-        }
-
-        Console.WriteLine($"File received: {file.FileName}, Size: {file.Length}, ContentType: {file.ContentType}");
-
-        // File validation
-        const long maxFileSize = 5 * 1024 * 1024; // 5MB
-        var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp" };
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-
-        // Check file size
-        if (file.Length > maxFileSize)
-        {
-            Console.WriteLine($"File too large: {file.Length} bytes");
-            return Results.BadRequest("File size exceeds 5MB limit");
-        }
-
-        // Check content type - be more lenient
-        var contentType = file.ContentType?.ToLower() ?? "";
-        if (!string.IsNullOrEmpty(contentType) && !allowedTypes.Any(t => contentType.Contains(t.Replace("image/", ""))))
-        {
-            Console.WriteLine($"Invalid content type: {contentType}");
-            return Results.BadRequest("Only JPEG, PNG, GIF and WebP images are allowed");
-        }
-
-        // Check file extension - be more lenient
-        var fileExtension = Path.GetExtension(file.FileName)?.ToLower();
-        if (!string.IsNullOrEmpty(fileExtension) && !allowedExtensions.Contains(fileExtension))
-        {
-            Console.WriteLine($"Invalid file extension: {fileExtension}");
-            return Results.BadRequest("Invalid file extension");
-        }
-
-        // Read file data
-        using var stream = file.OpenReadStream();
-        var buffer = new byte[8];
-        
-        // ReadExactlyAsync guarantees reading the exact number of bytes or throws
-        try {
-            await stream.ReadExactlyAsync(buffer, 0, 8);
-        }
-        catch (EndOfStreamException) {
-            // Handle case where file is smaller than 8 bytes
-            Console.WriteLine("File too small for proper format detection");
-        }
-        
-        stream.Position = 0;
-
-        Console.WriteLine($"File header: {string.Join(" ", buffer.Take(8).Select(b => b.ToString("X2")))}");
-
-        // More lenient image validation
-        var isValidImage = IsValidImageFile(buffer, contentType) || 
-                          string.IsNullOrEmpty(contentType) || // Allow if no content type
-                          allowedExtensions.Contains(fileExtension); // Allow based on extension
-
-        if (!isValidImage)
-        {
-            Console.WriteLine($"Image validation failed. ContentType: {contentType}, Extension: {fileExtension}");
-            // Don't fail - just log and continue for now
-            Console.WriteLine("Continuing despite validation warning...");
-        }
-
-        var user = await db.Users.FindAsync(userId);
-        if (user == null)
-        {
-            Console.WriteLine($"User not found: {userId}");
-            return Results.NotFound();
-        }
-
-        using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
-        user.ProfileImage = ms.ToArray();
-
-        await db.SaveChangesAsync();
-        Console.WriteLine($"Profile picture updated successfully for user {userId}");
-        return Results.NoContent();
+        return Results.BadRequest("Missing or invalid 'id'");
     }
-    catch (Exception ex)
+
+    var file = form.Files.GetFile("file");
+    if (file == null || file.Length == 0)
     {
-        Console.WriteLine($"Error updating profile picture: {ex.Message}");
-        Log.Error(ex, "Error updating profile picture for user");
-        return Results.Problem($"Error updating profile picture: {ex.Message}");
+        return Results.BadRequest("Missing file");
     }
+
+    // File validation
+    const long maxFileSize = 5 * 1024 * 1024; // 5MB
+    var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif" };
+    var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
+
+    // Check file size
+    if (file.Length > maxFileSize)
+    {
+        return Results.BadRequest("File size exceeds 5MB limit");
+    }
+
+    // Check content type
+    if (!allowedTypes.Contains(file.ContentType?.ToLower()))
+    {
+        return Results.BadRequest("Only JPEG, PNG and GIF images are allowed");
+    }
+
+    // Check file extension
+    var fileExtension = Path.GetExtension(file.FileName)?.ToLower();
+    if (string.IsNullOrEmpty(fileExtension) || !allowedExtensions.Contains(fileExtension))
+    {
+        return Results.BadRequest("Invalid file extension");
+    }
+
+    // Additional MIME type validation by reading file header
+    using var stream = file.OpenReadStream();
+    var buffer = new byte[8];
+    await stream.ReadAsync(buffer, 0, 8);
+    stream.Position = 0;
+
+    var isValidImage = IsValidImageFile(buffer, file.ContentType);
+    if (!isValidImage)
+    {
+        return Results.BadRequest("Invalid image file");
+    }
+
+    var user = await db.Users.FindAsync(userId);
+    if (user == null)
+    {
+        return Results.NotFound();
+    }
+
+    using var ms = new MemoryStream();
+    await stream.CopyToAsync(ms);
+    user.ProfileImage = ms.ToArray();
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
 }).RequireRateLimiting("FileUploadPolicy");
 
 // Helper method for image validation
 static bool IsValidImageFile(byte[] fileHeader, string contentType)
 {
-    if (fileHeader == null || fileHeader.Length < 3)
-        return false;
-        
-    // Be more lenient - check for basic image signatures
-    
     // JPEG: FF D8 FF
     if (fileHeader.Length >= 3 && fileHeader[0] == 0xFF && fileHeader[1] == 0xD8 && fileHeader[2] == 0xFF)
-        return true;
+        return contentType?.Contains("jpeg") == true || contentType?.Contains("jpg") == true;
     
-    // PNG: 89 50 4E 47
-    if (fileHeader.Length >= 4 && fileHeader[0] == 0x89 && fileHeader[1] == 0x50 && 
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (fileHeader.Length >= 8 && fileHeader[0] == 0x89 && fileHeader[1] == 0x50 && 
         fileHeader[2] == 0x4E && fileHeader[3] == 0x47)
-        return true;
+        return contentType?.Contains("png") == true;
     
-    // GIF: 47 49 46 38 (GIF87a) or 47 49 46 39 (GIF89a)
+    // GIF: 47 49 46 38
     if (fileHeader.Length >= 4 && fileHeader[0] == 0x47 && fileHeader[1] == 0x49 && 
-        fileHeader[2] == 0x46 && (fileHeader[3] == 0x38 || fileHeader[3] == 0x39))
-        return true;
-    
-    // WebP: 52 49 46 46 (RIFF) with WEBP at position 8
-    if (fileHeader.Length >= 8 && fileHeader[0] == 0x52 && fileHeader[1] == 0x49 && 
-        fileHeader[2] == 0x46 && fileHeader[3] == 0x46)
-        return true;
-    
-    // BMP: 42 4D
-    if (fileHeader.Length >= 2 && fileHeader[0] == 0x42 && fileHeader[1] == 0x4D)
-        return true;
-    
-    // If we can't determine from header, check content type
-    if (!string.IsNullOrEmpty(contentType))
-    {
-        var ct = contentType.ToLower();
-        return ct.Contains("image/") || ct.Contains("jpeg") || ct.Contains("png") || 
-               ct.Contains("gif") || ct.Contains("webp") || ct.Contains("bmp");
-    }
+        fileHeader[2] == 0x46 && fileHeader[3] == 0x38)
+        return contentType?.Contains("gif") == true;
     
     return false;
 }
@@ -1534,7 +1468,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             Name = form["name"].ToString(),
             Address = form["address"].ToString(),
             Category = form["category"].ToString(),
-            Description = form.ContainsKey("description") ? form["description"].ToString() : "",
             PhoneNumber = form["phoneNumber"].ToString(),
             Latitude = double.Parse(form["latitude"].ToString()),
             Longitude = double.Parse(form["longitude"].ToString()),
@@ -1568,7 +1501,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.Name,
             location.Address,
             location.Category,
-            location.Description,
             location.PhoneNumber,
             location.Latitude,
             location.Longitude,
@@ -1610,7 +1542,6 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
         
         location.Name = newName;
         location.Address = form["address"].ToString();
-        location.Description = form.ContainsKey("description") ? form["description"].ToString() : location.Description;
         location.Latitude = double.Parse(form["latitude"].ToString());
         location.Longitude = double.Parse(form["longitude"].ToString());
         location.Tags = form["tags"].ToString();
