@@ -1534,6 +1534,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             Name = form["name"].ToString(),
             Address = form["address"].ToString(),
             Category = form["category"].ToString(),
+            Description = form.ContainsKey("description") ? form["description"].ToString() : "",
             PhoneNumber = form["phoneNumber"].ToString(),
             Latitude = double.Parse(form["latitude"].ToString()),
             Longitude = double.Parse(form["longitude"].ToString()),
@@ -1567,6 +1568,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.Name,
             location.Address,
             location.Category,
+            location.Description,
             location.PhoneNumber,
             location.Latitude,
             location.Longitude,
@@ -1608,6 +1610,7 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
         
         location.Name = newName;
         location.Address = form["address"].ToString();
+        location.Description = form.ContainsKey("description") ? form["description"].ToString() : location.Description;
         location.Latitude = double.Parse(form["latitude"].ToString());
         location.Longitude = double.Parse(form["longitude"].ToString());
         location.Tags = form["tags"].ToString();
