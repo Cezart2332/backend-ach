@@ -15,6 +15,7 @@ namespace WebApplication1.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public bool IsActive { get; set; } = true;
+        public string? CertificatePath { get; set; }
 
         // Navigation properties
         public ICollection<Location> Locations { get; set; } = new List<Location>();

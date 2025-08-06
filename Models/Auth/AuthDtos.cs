@@ -144,6 +144,8 @@ namespace WebApplication1.Models.Auth
 
         [MaxLength(100, ErrorMessage = "Category cannot exceed 100 characters")]
         public string Category { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = false;
     }
 
     public class CompanyLoginRequestDto

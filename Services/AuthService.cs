@@ -13,7 +13,7 @@ namespace WebApplication1.Services
         
         // Company-specific methods
         Task<AuthResponseDto?> AuthenticateCompanyAsync(CompanyLoginRequestDto request, string ipAddress);
-        Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request);
+        Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request, string? certificatePath = null);
     }
 
     public class AuthService : IAuthService
@@ -236,11 +236,12 @@ namespace WebApplication1.Services
             }
         }
 
-        public async Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request)
+        public async Task<AuthResponseDto> RegisterCompanyAsync(CompanyRegisterRequestDto request, string? certificatePath = null)
         {
             try
             {
-                _logger.LogInformation("Starting company registration for email: {Email}", request.Email);
+                _logger.LogInformation("Starting company registration for email: {Email}, HasCertificate: {HasCertificate}", 
+                    request.Email, !string.IsNullOrEmpty(certificatePath));
 
                 // Check if company already exists
                 var existingCompany = await _context.Companies
@@ -274,7 +275,8 @@ namespace WebApplication1.Services
                     Category = request.Category ?? string.Empty,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
-                    IsActive = true
+                    IsActive = request.IsActive, // Set based on request (false for pending approval)
+                    CertificatePath = certificatePath // Store certificate file path
                 };
 
                 _logger.LogInformation("Company object created, adding to database - Email: {Email}", request.Email);

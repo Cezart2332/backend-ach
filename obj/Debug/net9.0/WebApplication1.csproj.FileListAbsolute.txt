@@ -112,3 +112,7 @@ C:\Users\Cezar\Desktop\backend-ach\WebApplication1\obj\Debug\net9.0\refint\WebAp
 C:\Users\Cezar\Desktop\backend-ach\WebApplication1\obj\Debug\net9.0\WebApplication1.pdb
 C:\Users\Cezar\Desktop\backend-ach\WebApplication1\obj\Debug\net9.0\WebApplication1.genruntimeconfig.cache
 C:\Users\Cezar\Desktop\backend-ach\WebApplication1\obj\Debug\net9.0\ref\WebApplication1.dll
+C:\Users\Cezar\Desktop\acum-h\backend\WebApplication1\WebApplication1\obj\Debug\net9.0\rpswa.dswa.cache.json
+C:\Users\Cezar\Desktop\acum-h\backend\WebApplication1\WebApplication1\obj\Debug\net9.0\rjimswa.dswa.cache.json
+C:\Users\Cezar\Desktop\acum-h\backend\WebApplication1\WebApplication1\obj\Debug\net9.0\rjsmrazor.dswa.cache.json
+C:\Users\Cezar\Desktop\acum-h\backend\WebApplication1\WebApplication1\obj\Debug\net9.0\rjsmcshtml.dswa.cache.json

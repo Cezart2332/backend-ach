@@ -1,0 +1,2 @@
+2025-08-06 21:29:59.665 +03:00 [ERR] Failed executing DbCommand (0ms) [Parameters=[], CommandType='"Text"', CommandTimeout='30']
+ALTER TABLE `companies` ADD `CertificatePath` longtext CHARACTER SET utf8mb4 NULL;
