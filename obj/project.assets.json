@@ -2118,9 +2118,11 @@
       "Microsoft.AspNetCore.OpenApi >= 9.0.2",
       "Microsoft.EntityFrameworkCore.Design >= 8.*",
       "Microsoft.EntityFrameworkCore.Tools >= 8.*",
+      "Microsoft.Extensions.DependencyModel >= 9.0.0",
       "Microsoft.IdentityModel.Tokens >= 8.13.0",
       "Pomelo.EntityFrameworkCore.MySql >= 8.*",
       "Serilog.AspNetCore >= 9.0.0",
+      "Serilog.Settings.Configuration >= 9.0.0",
       "Serilog.Sinks.Console >= 6.0.0",
       "Serilog.Sinks.File >= 6.0.0",
       "System.IdentityModel.Tokens.Jwt >= 8.13.0"
@@ -2200,6 +2202,10 @@
             "target": "Package",
             "version": "[8.*, )"
           },
+          "Microsoft.Extensions.DependencyModel": {
+            "target": "Package",
+            "version": "[9.0.0, )"
+          },
           "Microsoft.IdentityModel.Tokens": {
             "target": "Package",
             "version": "[8.13.0, )"
@@ -2209,6 +2215,10 @@
             "version": "[8.*, )"
           },
           "Serilog.AspNetCore": {
+            "target": "Package",
+            "version": "[9.0.0, )"
+          },
+          "Serilog.Settings.Configuration": {
             "target": "Package",
             "version": "[9.0.0, )"
           },

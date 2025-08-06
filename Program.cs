@@ -911,7 +911,16 @@ app.MapPut("changepfp", async (HttpRequest req, AppDbContext db) =>
         // Read file data
         using var stream = file.OpenReadStream();
         var buffer = new byte[8];
-        await stream.ReadAsync(buffer, 0, 8);
+        
+        // ReadExactlyAsync guarantees reading the exact number of bytes or throws
+        try {
+            await stream.ReadExactlyAsync(buffer, 0, 8);
+        }
+        catch (EndOfStreamException) {
+            // Handle case where file is smaller than 8 bytes
+            Console.WriteLine("File too small for proper format detection");
+        }
+        
         stream.Position = 0;
 
         Console.WriteLine($"File header: {string.Join(" ", buffer.Take(8).Select(b => b.ToString("X2")))}");

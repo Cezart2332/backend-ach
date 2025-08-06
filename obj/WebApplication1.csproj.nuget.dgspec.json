@@ -74,6 +74,10 @@
               "target": "Package",
               "version": "[8.*, )"
             },
+            "Microsoft.Extensions.DependencyModel": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
             "Microsoft.IdentityModel.Tokens": {
               "target": "Package",
               "version": "[8.13.0, )"
@@ -83,6 +87,10 @@
               "version": "[8.*, )"
             },
             "Serilog.AspNetCore": {
+              "target": "Package",
+              "version": "[9.0.0, )"
+            },
+            "Serilog.Settings.Configuration": {
               "target": "Package",
               "version": "[9.0.0, )"
             },
