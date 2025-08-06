@@ -624,7 +624,8 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
 }).RequireRateLimiting("AuthPolicy")
   .WithTags("Company Authentication")
   .WithOpenApi()
-  .Accepts<CompanyRegisterRequestDto>("application/json");
+  .Accepts<CompanyRegisterRequestDto>("application/json")
+  .Accepts<CompanyRegisterRequestDto>("multipart/form-data");
 
 app.MapGet("/auth/company-me", async (HttpContext context, AppDbContext db) =>
 {
