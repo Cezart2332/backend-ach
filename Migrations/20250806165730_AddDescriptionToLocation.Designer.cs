@@ -23,8 +23,6 @@ namespace WebApplication1.Migrations
                 .HasAnnotation("ProductVersion", "8.0.19")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
-            MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
-
             modelBuilder.Entity("WebApplication1.Models.Auth.RefreshToken", b =>
                 {
                     b.Property<int>("Id")
