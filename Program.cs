@@ -624,7 +624,8 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
 }).RequireRateLimiting("AuthPolicy")
   .WithTags("Company Authentication")
   .WithOpenApi()
-  .Accepts<CompanyRegisterRequestDto>("application/json");
+  .Accepts<CompanyRegisterRequestDto>("application/json")
+  .Accepts<CompanyRegisterRequestDto>("multipart/form-data");
 
 app.MapGet("/auth/company-me", async (HttpContext context, AppDbContext db) =>
 {
@@ -1244,18 +1245,24 @@ app.MapGet("/events/{id}/like-status/{userId}", async (int id, int userId, AppDb
 });
 
 // POST /events - Create new event
-app.MapPost("/events", async (HttpRequest request, AppDbContext db) =>
+app.MapPost("/events", async (HttpContext context, AppDbContext db) =>
 {
     try
     {
-        var form = await request.ReadFormAsync();
-        
-        var companyId = int.Parse(form["companyId"].ToString());
+        // Get company ID from the authenticated user
+        var companyIdClaim = context.User.FindFirst("sub")?.Value;
+        if (string.IsNullOrEmpty(companyIdClaim) || !int.TryParse(companyIdClaim, out var companyId))
+        {
+            return Results.Unauthorized();
+        }
+
         var company = await db.Companies.FindAsync(companyId);
         if (company == null)
         {
             return Results.BadRequest("Company not found");
         }
+
+        var form = await context.Request.ReadFormAsync();
 
         // Handle image upload
         byte[] imageData = Array.Empty<byte>();
@@ -1316,7 +1323,7 @@ app.MapPost("/events", async (HttpRequest request, AppDbContext db) =>
     {
         return Results.BadRequest($"Error creating event: {ex.Message}");
     }
-});
+}).RequireAuthorization();
 
 // PUT /events/{id} - Update event
 app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db) =>

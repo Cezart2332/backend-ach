@@ -10,4 +10,5 @@ public class CompanyResponse
     
     public int Cui {get; set;}
     public required string Category { get; set; }
+    public bool IsActive { get; set; }
 }
