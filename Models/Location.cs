@@ -14,6 +14,7 @@ namespace WebApplication1.Models
         public double Latitude { get; set; }
         public double Longitude { get; set; }
         public string Tags { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
         public byte[] Photo { get; set; } = Array.Empty<byte>();
         public string MenuName { get; set; } = string.Empty;
         public byte[] MenuData { get; set; } = Array.Empty<byte>();

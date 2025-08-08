@@ -14,6 +14,7 @@ using Serilog;
 using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Threading.Tasks;
+using System.Globalization;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -774,6 +775,7 @@ app.MapGet("/locations", async (AppDbContext db) =>
         l.PhoneNumber,
         l.Latitude,
         l.Longitude,
+    l.Description,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(l.Photo),
         MenuName = l.MenuName,
@@ -1471,6 +1473,7 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         l.PhoneNumber,
         l.Latitude,
         l.Longitude,
+    l.Description,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(l.Photo),
         MenuName = l.MenuName,
@@ -1501,6 +1504,7 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db) =>
         location.Latitude,
         location.Category,
         location.Longitude,
+    location.Description,
         Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
         Photo = Convert.ToBase64String(location.Photo),
         MenuName = location.MenuName,
@@ -1518,6 +1522,11 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
 {
     try
     {
+        if (!req.HasFormContentType)
+        {
+            return Results.BadRequest("Expected multipart form-data");
+        }
+
         var form = await req.ReadFormAsync();
         
         // Check if company exists
@@ -1528,8 +1537,27 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         }
         
         // Check if location name already exists for this company (active or inactive)
+    var nameRaw = form["name"].ToString();
+        var addressRaw = form["address"].ToString();
+        var categoryRaw = form["category"].ToString();
+        var phoneRaw = form["phoneNumber"].ToString();
+        var latRaw = form["latitude"].ToString();
+        var lngRaw = form["longitude"].ToString();
+    var descriptionRaw = form["description"].ToString();
+
+        if (string.IsNullOrWhiteSpace(nameRaw))
+            return Results.Problem("Name is required", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(addressRaw))
+            return Results.Problem("Address is required", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(categoryRaw))
+            return Results.Problem("Category is required", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(phoneRaw))
+            return Results.Problem("Phone number is required", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(latRaw) || string.IsNullOrWhiteSpace(lngRaw))
+            return Results.Problem("Latitude and longitude are required", statusCode: 400);
+
         var existingLocation = await db.Locations
-            .AnyAsync(l => l.CompanyId == companyId && l.Name == form["name"].ToString());
+            .AnyAsync(l => l.CompanyId == companyId && l.Name == nameRaw);
         if (existingLocation)
         {
             return Results.Conflict(new { Error = "Location with this name already exists for this company. Please choose a different name." });
@@ -1538,16 +1566,29 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         var photoFile = form.Files.GetFile("photo");
         var menuFile = form.Files.GetFile("menu");
         
+        // Normalize and safely parse coordinates (accept both comma and dot)
+        var latNorm = latRaw.Replace(',', '.');
+        var lngNorm = lngRaw.Replace(',', '.');
+        if (!double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var latParsed))
+        {
+            return Results.Problem($"Invalid latitude: {latRaw}", statusCode: 400);
+        }
+        if (!double.TryParse(lngNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lngParsed))
+        {
+            return Results.Problem($"Invalid longitude: {lngRaw}", statusCode: 400);
+        }
+        
         var location = new Location
         {
             CompanyId = companyId,
-            Name = form["name"].ToString(),
-            Address = form["address"].ToString(),
-            Category = form["category"].ToString(),
-            PhoneNumber = form["phoneNumber"].ToString(),
-            Latitude = double.Parse(form["latitude"].ToString()),
-            Longitude = double.Parse(form["longitude"].ToString()),
-            Tags = form["tags"].ToString()
+            Name = SanitizeInput(nameRaw),
+            Address = SanitizeInput(addressRaw),
+            Category = SanitizeInput(categoryRaw),
+            PhoneNumber = SanitizeInput(phoneRaw),
+            Latitude = latParsed,
+            Longitude = lngParsed,
+            Tags = SanitizeInput(form["tags"].ToString()),
+            Description = SanitizeInput(descriptionRaw)
         };
 
         // Handle photo upload
@@ -1580,6 +1621,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.PhoneNumber,
             location.Latitude,
             location.Longitude,
+            location.Description,
             Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
             Photo = Convert.ToBase64String(location.Photo),
             location.MenuName,
@@ -1605,22 +1647,44 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
             return Results.NotFound();
         }
 
+        if (!req.HasFormContentType)
+        {
+            return Results.BadRequest("Expected multipart form-data");
+        }
+
         var form = await req.ReadFormAsync();
         
         // Check if another location with the same name exists for this company
-        var newName = form["name"].ToString();
+    var newName = form["name"].ToString();
         var existingLocation = await db.Locations
             .AnyAsync(l => l.CompanyId == location.CompanyId && l.Name == newName && l.Id != id);
         if (existingLocation)
         {
             return Results.Conflict(new { Error = "Another location with this name already exists for this company. Please choose a different name." });
         }
-        
-        location.Name = newName;
-        location.Address = form["address"].ToString();
-        location.Latitude = double.Parse(form["latitude"].ToString());
-        location.Longitude = double.Parse(form["longitude"].ToString());
-        location.Tags = form["tags"].ToString();
+        // Safe parsing of coordinates
+        var latRawUpd = form["latitude"].ToString();
+        var lngRawUpd = form["longitude"].ToString();
+        var latNormUpd = latRawUpd.Replace(',', '.');
+        var lngNormUpd = lngRawUpd.Replace(',', '.');
+        if (!double.TryParse(latNormUpd, NumberStyles.Float, CultureInfo.InvariantCulture, out var latParsedUpd))
+        {
+            return Results.Problem($"Invalid latitude: {latRawUpd}", statusCode: 400);
+        }
+        if (!double.TryParse(lngNormUpd, NumberStyles.Float, CultureInfo.InvariantCulture, out var lngParsedUpd))
+        {
+            return Results.Problem($"Invalid longitude: {lngRawUpd}", statusCode: 400);
+        }
+
+        location.Name = SanitizeInput(newName);
+        location.Address = SanitizeInput(form["address"].ToString());
+        location.Latitude = latParsedUpd;
+        location.Longitude = lngParsedUpd;
+        location.Tags = SanitizeInput(form["tags"].ToString());
+        if (form.ContainsKey("description"))
+        {
+            location.Description = SanitizeInput(form["description"].ToString());
+        }
         location.UpdatedAt = DateTime.UtcNow;
 
         var photoFile = form.Files.GetFile("photo");
