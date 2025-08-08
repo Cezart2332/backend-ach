@@ -1587,8 +1587,15 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             PhoneNumber = SanitizeInput(phoneRaw),
             Latitude = latParsed,
             Longitude = lngParsed,
-            Tags = SanitizeInput(form["tags"].ToString()),
-            Description = SanitizeInput(descriptionRaw)
+            Tags = SanitizeInput(form["tags"].ToString()) ?? string.Empty,
+            Description = string.IsNullOrWhiteSpace(descriptionRaw) ? null : SanitizeInput(descriptionRaw),
+            Photo = Array.Empty<byte>(), // Ensure non-null
+            MenuName = string.Empty, // Ensure non-null  
+            MenuData = Array.Empty<byte>(), // Ensure non-null
+            HasMenu = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            IsActive = true
         };
 
         // Handle photo upload
@@ -1610,6 +1617,11 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         }
 
         db.Locations.Add(location);
+        
+        // Debug logging before SaveChanges
+        Log.Information("Creating location with: Name='{Name}', Address='{Address}', Category='{Category}', Tags='{Tags}', Description='{Description}', Photo.Length={PhotoLength}, MenuName='{MenuName}', MenuData.Length={MenuDataLength}", 
+            location.Name, location.Address, location.Category, location.Tags, location.Description, location.Photo?.Length ?? 0, location.MenuName, location.MenuData?.Length ?? 0);
+        
         await db.SaveChangesAsync();
 
         var response = new
@@ -1632,7 +1644,8 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
     }
     catch (Exception ex)
     {
-        return Results.Problem($"Error creating location: {ex.Message}");
+        var inner = ex.InnerException != null ? $" | Inner: {ex.InnerException.Message}" : string.Empty;
+        return Results.Problem($"Error creating location: {ex.Message}{inner}");
     }
 });
 
@@ -1683,7 +1696,8 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
         location.Tags = SanitizeInput(form["tags"].ToString());
         if (form.ContainsKey("description"))
         {
-            location.Description = SanitizeInput(form["description"].ToString());
+            var descValue = form["description"].ToString();
+            location.Description = string.IsNullOrWhiteSpace(descValue) ? null : SanitizeInput(descValue);
         }
         location.UpdatedAt = DateTime.UtcNow;
 
