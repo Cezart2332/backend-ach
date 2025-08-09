@@ -769,7 +769,7 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToList(),
             Likes = 0, // Temporarily disabled to avoid N+1 query issues
             // Optimize photo loading - only send if small
-            Photo = e.Photo != null && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
+            Photo = e.Photo != null && e.Photo.Length > 0 && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
             Company = string.Empty, // Company name removed to avoid join issues
             CompanyId = e.CompanyId, // Use CompanyId instead of Company name to avoid join issues
             EventDate = e.EventDate,
@@ -866,7 +866,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             Description = l.Description ?? string.Empty,
             Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
             // Optimize photo loading - only send if small or provide thumbnail
-            Photo = l.Photo != null && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
+            Photo = l.Photo != null && l.Photo.Length > 0 && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
             MenuName = l.MenuName,
             HasMenu = l.MenuData != null && l.MenuData.Length > 0,
             l.CreatedAt,
