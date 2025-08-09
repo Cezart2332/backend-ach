@@ -310,9 +310,16 @@ app.MapGet("/health/db", async (AppDbContext context) =>
     {
         await context.Database.CanConnectAsync();
         var migrations = await context.Database.GetAppliedMigrationsAsync();
+        
+        // Test simple count queries
+        var locationCount = await context.Locations.CountAsync();
+        var eventCount = await context.Events.CountAsync();
+        
         return Results.Ok(new { 
             status = "database connected", 
             migrationsApplied = migrations.Count(),
+            locationCount,
+            eventCount,
             timestamp = DateTime.UtcNow 
         });
     }
