@@ -9,6 +9,7 @@ public class EventResponse
     public List<string> Tags { get; set; } = new();
     public int Likes { get; set; }
     public string Company { get; set; } = string.Empty;
+    public int CompanyId { get; set; }
     
     // New fields for enhanced event management
     public DateTime EventDate { get; set; }

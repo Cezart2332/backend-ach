@@ -737,7 +737,6 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
 
     // Build query with filters
     var query = db.Events
-        .Include(e => e.Company)
         .Where(e => active != false ? e.IsActive : true); // Default to active events only
 
     // Apply search filter
@@ -771,7 +770,8 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             Likes = db.Likes.Count(l => l.EventId == e.Id),
             // Optimize photo loading - only send if small
             Photo = e.Photo != null && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
-            Company = e.Company != null ? e.Company.Name : "Unknown",
+            Company = string.Empty, // Company name removed to avoid join issues
+            CompanyId = e.CompanyId, // Use CompanyId instead of Company name to avoid join issues
             EventDate = e.EventDate,
             StartTime = e.StartTime.ToString(@"hh\:mm"),
             EndTime = e.EndTime.ToString(@"hh\:mm"),
@@ -825,7 +825,6 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
 
     // Build query with filters
     var query = db.Locations
-        .Include(l => l.Company)
         .Where(l => l.IsActive);
 
     // Apply category filter
@@ -871,7 +870,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             HasMenu = l.MenuData != null && l.MenuData.Length > 0,
             l.CreatedAt,
             l.UpdatedAt,
-            CompanyName = l.Company.Name // Include company name directly
+            CompanyId = l.CompanyId // Include company ID instead of name to avoid join issues
         })
         .ToListAsync();
 
