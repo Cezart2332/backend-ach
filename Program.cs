@@ -354,8 +354,8 @@ app.MapGet("/test/location-fields", async (AppDbContext db) =>
 {
     try
     {
-        // Test with progressively more fields to find the problematic one
-        var locations = await db.Locations
+        // Query only EF-translatable members first
+        var raw = await db.Locations
             .Where(l => l.IsActive)
             .Select(l => new {
                 l.Id,
@@ -366,25 +366,41 @@ app.MapGet("/test/location-fields", async (AppDbContext db) =>
                 l.Latitude,
                 l.Longitude,
                 Description = l.Description ?? string.Empty,
-                Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
-                // Skip photo for now
+                RawTags = l.Tags,
                 l.MenuName,
                 HasMenu = l.MenuData != null && l.MenuData.Length > 0,
                 l.CreatedAt,
                 l.UpdatedAt,
                 l.CompanyId
             })
-            .Take(2)
+            .Take(5)
             .ToListAsync();
-        
-        return Results.Ok(new { count = locations.Count, data = locations });
+
+        // Post-process tags client-side
+        var shaped = raw.Select(l => new {
+            l.Id,
+            l.Name,
+            l.Address,
+            l.Category,
+            l.PhoneNumber,
+            l.Latitude,
+            l.Longitude,
+            l.Description,
+            Tags = string.IsNullOrEmpty(l.RawTags) ? Array.Empty<string>() : l.RawTags.Split(',', StringSplitOptions.RemoveEmptyEntries),
+            l.MenuName,
+            l.HasMenu,
+            l.CreatedAt,
+            l.UpdatedAt,
+            l.CompanyId
+        });
+
+        return Results.Ok(new { count = shaped.Count(), data = shaped });
     }
     catch (Exception ex)
     {
         return Results.Problem($"Location fields query failed: {ex.Message}");
     }
 }).WithTags("Test");
-
 // Helper function to get client IP
 string GetClientIpAddress(HttpContext context)
 {
@@ -819,33 +835,49 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
     var totalCount = await query.CountAsync();
 
     // Get paginated results with optimized projection
-    var events = await query
+    var rawEvents = await query
         .OrderBy(e => e.EventDate)
-        .ThenBy(e => e.StartTime) // Order by date and time
+        .ThenBy(e => e.StartTime)
         .Skip(skip)
         .Take(limitNum)
-        .Select(e => new EventResponse
-        {
-            Id = e.Id,
-            Title = e.Title,
-            Description = e.Description,
-            Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToList(),
-            Likes = 0, // Temporarily disabled to avoid N+1 query issues
-            // Optimize photo loading - only send if small
-            Photo = e.Photo != null && e.Photo.Length > 0 && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
-            Company = string.Empty, // Company name removed to avoid join issues
-            CompanyId = e.CompanyId, // Use CompanyId instead of Company name to avoid join issues
-            EventDate = e.EventDate,
-            StartTime = e.StartTime.ToString(@"hh\:mm"),
-            EndTime = e.EndTime.ToString(@"hh\:mm"),
-            Address = e.Address,
-            City = e.City,
-            Latitude = e.Latitude,
-            Longitude = e.Longitude,
-            IsActive = e.IsActive,
-            CreatedAt = e.CreatedAt
+        .Select(e => new {
+            e.Id,
+            e.Title,
+            e.Description,
+            e.Tags,
+            e.Photo,
+            e.CompanyId,
+            e.EventDate,
+            e.StartTime,
+            e.EndTime,
+            e.Address,
+            e.City,
+            e.Latitude,
+            e.Longitude,
+            e.IsActive,
+            e.CreatedAt
         })
         .ToListAsync();
+
+    var events = rawEvents.Select(e => new EventResponse {
+        Id = e.Id,
+        Title = e.Title,
+        Description = e.Description,
+        Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
+        Likes = 0,
+        Photo = e.Photo != null && e.Photo.Length > 0 && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
+        Company = string.Empty,
+        CompanyId = e.CompanyId,
+        EventDate = e.EventDate,
+        StartTime = e.StartTime.ToString(@"hh\:mm"),
+        EndTime = e.EndTime.ToString(@"hh\:mm"),
+        Address = e.Address,
+        City = e.City,
+        Latitude = e.Latitude,
+        Longitude = e.Longitude,
+        IsActive = e.IsActive,
+        CreatedAt = e.CreatedAt
+    }).ToList();
 
     var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
 
@@ -927,7 +959,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Latitude,
             l.Longitude,
             Description = l.Description ?? string.Empty,
-            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
+            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToArray(),
             // Optimize photo loading - only send if small or provide thumbnail
             Photo = l.Photo != null && l.Photo.Length > 0 && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
             MenuName = l.MenuName,
