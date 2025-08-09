@@ -728,6 +728,8 @@ app.MapGet("/companies", async (AppDbContext db) =>
 // GET /events - Public events endpoint with pagination and optimization
 app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, AppDbContext db) =>
 {
+    try
+    {
     // Default pagination values
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
@@ -797,6 +799,16 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             hasPrev = pageNum > 1
         }
     });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error in /events endpoint");
+        return Results.Problem(
+            detail: "An error occurred while fetching events",
+            statusCode: 500,
+            title: "Internal Server Error"
+        );
+    }
 }).WithTags("Events")
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
@@ -804,6 +816,8 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
 // GET /locations - Public locations endpoint with pagination and optimization
 app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, AppDbContext db) =>
 {
+    try
+    {
     // Default pagination values
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
@@ -876,6 +890,16 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             hasPrev = pageNum > 1
         }
     });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error in /locations endpoint");
+        return Results.Problem(
+            detail: "An error occurred while fetching locations",
+            statusCode: 500,
+            title: "Internal Server Error"
+        );
+    }
 }).WithTags("Locations")
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
