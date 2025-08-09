@@ -944,13 +944,12 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     // Get total count for pagination
     var totalCount = await query.CountAsync();
 
-    // Get paginated results with optimized projection
-    var locations = await query
-        .OrderBy(l => l.Name) // Consistent ordering for pagination
+    // First fetch raw data (only EF-translatable operations here)
+    var rawLocations = await query
+        .OrderBy(l => l.Name)
         .Skip(skip)
         .Take(limitNum)
-        .Select(l => new
-        {
+        .Select(l => new {
             l.Id,
             l.Name,
             l.Address,
@@ -958,17 +957,35 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.PhoneNumber,
             l.Latitude,
             l.Longitude,
-            Description = l.Description ?? string.Empty,
-            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToArray(),
-            // Optimize photo loading - only send if small or provide thumbnail
-            Photo = l.Photo != null && l.Photo.Length > 0 && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
-            MenuName = l.MenuName,
-            HasMenu = l.MenuData != null && l.MenuData.Length > 0,
+            l.Description,
+            l.Tags,
+            l.Photo,
+            l.MenuName,
+            l.MenuData,
             l.CreatedAt,
             l.UpdatedAt,
-            CompanyId = l.CompanyId // Include company ID instead of name to avoid join issues
+            l.CompanyId
         })
         .ToListAsync();
+
+    // Shape result client-side (safe string operations & base64)
+    var locations = rawLocations.Select(l => new {
+        l.Id,
+        l.Name,
+        l.Address,
+        l.Category,
+        l.PhoneNumber,
+        l.Latitude,
+        l.Longitude,
+        Description = l.Description ?? string.Empty,
+        Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
+        Photo = l.Photo != null && l.Photo.Length > 0 && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : string.Empty,
+        l.MenuName,
+        HasMenu = l.MenuData != null && l.MenuData.Length > 0,
+        l.CreatedAt,
+        l.UpdatedAt,
+        CompanyId = l.CompanyId
+    }).ToList();
 
     var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
         
