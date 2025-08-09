@@ -767,7 +767,7 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             Title = e.Title,
             Description = e.Description,
             Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToList(),
-            Likes = db.Likes.Count(l => l.EventId == e.Id),
+            Likes = 0, // Temporarily disabled to avoid N+1 query issues
             // Optimize photo loading - only send if small
             Photo = e.Photo != null && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
             Company = string.Empty, // Company name removed to avoid join issues
@@ -1184,9 +1184,9 @@ app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(",").Select(t => t.Trim()).ToList(),
-        Likes = db.Likes.Count(l => l.EventId == e.Id),
+        Likes = 0, // Temporarily disabled to avoid N+1 query issues
         Photo = e.Photo != null ? Convert.ToBase64String(e.Photo) : string.Empty,
-        Company = e.Company?.Name ?? "Unknown",
+        Company = string.Empty, // Company name removed to avoid join issues
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
         EndTime = e.EndTime.ToString(@"hh\:mm"),
