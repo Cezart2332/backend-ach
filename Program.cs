@@ -725,66 +725,177 @@ app.MapGet("/companies", async (AppDbContext db) =>
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /events - Public events endpoint
-app.MapGet("/events", async (AppDbContext db) =>
+// GET /events - Public events endpoint with pagination and optimization
+app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, AppDbContext db) =>
 {
-    var events = await db.Events
-        .Include(e => e.Company)
-        .Where(e => e.IsActive)
-        .ToListAsync();
-        
-    var eventResponses = events.Select(e => new EventResponse
-    {
-        Id = e.Id,
-        Title = e.Title,
-        Description = e.Description,
-        Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(",").Select(t => t.Trim()).ToList(),
-        Likes = db.Likes.Count(l => l.EventId == e.Id),
-        Photo = e.Photo != null ? Convert.ToBase64String(e.Photo) : string.Empty,
-        Company = e.Company?.Name ?? "Unknown",
-        EventDate = e.EventDate,
-        StartTime = e.StartTime.ToString(@"hh\:mm"),
-        EndTime = e.EndTime.ToString(@"hh\:mm"),
-        Address = e.Address,
-        City = e.City,
-        Latitude = e.Latitude,
-        Longitude = e.Longitude,
-        IsActive = e.IsActive,
-        CreatedAt = e.CreatedAt
-    }).ToList();
+    // Default pagination values
+    var pageNum = page ?? 1;
+    var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
+    var skip = (pageNum - 1) * limitNum;
 
-    return Results.Ok(eventResponses);
+    // Build query with filters
+    var query = db.Events
+        .Include(e => e.Company)
+        .Where(e => active != false ? e.IsActive : true); // Default to active events only
+
+    // Apply search filter
+    if (!string.IsNullOrEmpty(search))
+    {
+        var searchLower = search.ToLower();
+        query = query.Where(e => 
+            e.Title.ToLower().Contains(searchLower) ||
+            e.Description.ToLower().Contains(searchLower) ||
+            e.Address.ToLower().Contains(searchLower) ||
+            e.City.ToLower().Contains(searchLower) ||
+            e.Tags.ToLower().Contains(searchLower)
+        );
+    }
+
+    // Get total count for pagination
+    var totalCount = await query.CountAsync();
+
+    // Get paginated results with optimized projection
+    var events = await query
+        .OrderBy(e => e.EventDate)
+        .ThenBy(e => e.StartTime) // Order by date and time
+        .Skip(skip)
+        .Take(limitNum)
+        .Select(e => new EventResponse
+        {
+            Id = e.Id,
+            Title = e.Title,
+            Description = e.Description,
+            Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToList(),
+            Likes = db.Likes.Count(l => l.EventId == e.Id),
+            // Optimize photo loading - only send if small
+            Photo = e.Photo != null && e.Photo.Length <= 50000 ? Convert.ToBase64String(e.Photo) : string.Empty,
+            Company = e.Company != null ? e.Company.Name : "Unknown",
+            EventDate = e.EventDate,
+            StartTime = e.StartTime.ToString(@"hh\:mm"),
+            EndTime = e.EndTime.ToString(@"hh\:mm"),
+            Address = e.Address,
+            City = e.City,
+            Latitude = e.Latitude,
+            Longitude = e.Longitude,
+            IsActive = e.IsActive,
+            CreatedAt = e.CreatedAt
+        })
+        .ToListAsync();
+
+    var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
+
+    return Results.Ok(new
+    {
+        data = events,
+        pagination = new
+        {
+            page = pageNum,
+            limit = limitNum,
+            total = totalCount,
+            totalPages = totalPages,
+            hasNext = pageNum < totalPages,
+            hasPrev = pageNum > 1
+        }
+    });
 }).WithTags("Events")
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /locations - Public locations endpoint
-app.MapGet("/locations", async (AppDbContext db) =>
+// GET /locations - Public locations endpoint with pagination and optimization
+app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, AppDbContext db) =>
 {
-    var locations = await db.Locations
+    // Default pagination values
+    var pageNum = page ?? 1;
+    var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
+    var skip = (pageNum - 1) * limitNum;
+
+    // Build query with filters
+    var query = db.Locations
         .Include(l => l.Company)
-        .Where(l => l.IsActive)
-        .ToListAsync();
-        
-    var result = locations.Select(l => new
+        .Where(l => l.IsActive);
+
+    // Apply category filter
+    if (!string.IsNullOrEmpty(category))
     {
-        l.Id,
-        l.Name,
-        l.Address,
-        l.Category,
-        l.PhoneNumber,
-        l.Latitude,
-        l.Longitude,
-    l.Description,
-        Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
-        Photo = Convert.ToBase64String(l.Photo),
-        MenuName = l.MenuName,
-        HasMenu = l.MenuData.Length > 0,
-        l.CreatedAt,
-        l.UpdatedAt
-    }).ToList();
+        query = query.Where(l => l.Category.ToLower() == category.ToLower());
+    }
+
+    // Apply search filter
+    if (!string.IsNullOrEmpty(search))
+    {
+        var searchLower = search.ToLower();
+        query = query.Where(l => 
+            l.Name.ToLower().Contains(searchLower) ||
+            l.Address.ToLower().Contains(searchLower) ||
+            l.Tags.ToLower().Contains(searchLower) ||
+            l.Category.ToLower().Contains(searchLower)
+        );
+    }
+
+    // Get total count for pagination
+    var totalCount = await query.CountAsync();
+
+    // Get paginated results with optimized projection
+    var locations = await query
+        .OrderBy(l => l.Name) // Consistent ordering for pagination
+        .Skip(skip)
+        .Take(limitNum)
+        .Select(l => new
+        {
+            l.Id,
+            l.Name,
+            l.Address,
+            l.Category,
+            l.PhoneNumber,
+            l.Latitude,
+            l.Longitude,
+            l.Description,
+            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
+            // Optimize photo loading - only send if small or provide thumbnail
+            Photo = l.Photo.Length > 50000 ? "" : Convert.ToBase64String(l.Photo), // Skip large photos for list view
+            MenuName = l.MenuName,
+            HasMenu = l.MenuData.Length > 0,
+            l.CreatedAt,
+            l.UpdatedAt,
+            CompanyName = l.Company.Name // Include company name directly
+        })
+        .ToListAsync();
+
+    var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
         
-    return Results.Ok(result);
+    return Results.Ok(new
+    {
+        data = locations,
+        pagination = new
+        {
+            page = pageNum,
+            limit = limitNum,
+            total = totalCount,
+            totalPages = totalPages,
+            hasNext = pageNum < totalPages,
+            hasPrev = pageNum > 1
+        }
+    });
+}).WithTags("Locations")
+  .RequireRateLimiting("GeneralPolicy")
+  .WithOpenApi();
+
+// GET /locations/{id}/photo - Get location photo separately for lazy loading
+app.MapGet("/locations/{id}/photo", async (int id, AppDbContext db) =>
+{
+    var location = await db.Locations
+        .Where(l => l.Id == id && l.IsActive)
+        .Select(l => new { l.Photo })
+        .FirstOrDefaultAsync();
+    
+    if (location == null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(new { 
+        photo = Convert.ToBase64String(location.Photo) 
+    });
 }).WithTags("Locations")
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
