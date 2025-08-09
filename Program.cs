@@ -852,7 +852,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Description,
             Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
             // Optimize photo loading - only send if small or provide thumbnail
-            Photo = l.Photo == null || l.Photo.Length > 50000 ? "" : Convert.ToBase64String(l.Photo), // Skip large photos for list view
+            Photo = l.Photo != null && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
             MenuName = l.MenuName,
             HasMenu = l.MenuData != null && l.MenuData.Length > 0,
             l.CreatedAt,
