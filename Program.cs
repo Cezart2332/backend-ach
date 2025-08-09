@@ -349,6 +349,42 @@ app.MapGet("/test/simple-locations", async (AppDbContext db) =>
     }
 }).WithTags("Test");
 
+// Test endpoint to debug which field causes the issue
+app.MapGet("/test/location-fields", async (AppDbContext db) =>
+{
+    try
+    {
+        // Test with progressively more fields to find the problematic one
+        var locations = await db.Locations
+            .Where(l => l.IsActive)
+            .Select(l => new {
+                l.Id,
+                l.Name,
+                l.Address,
+                l.Category,
+                l.PhoneNumber,
+                l.Latitude,
+                l.Longitude,
+                Description = l.Description ?? string.Empty,
+                Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
+                // Skip photo for now
+                l.MenuName,
+                HasMenu = l.MenuData != null && l.MenuData.Length > 0,
+                l.CreatedAt,
+                l.UpdatedAt,
+                l.CompanyId
+            })
+            .Take(2)
+            .ToListAsync();
+        
+        return Results.Ok(new { count = locations.Count, data = locations });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Location fields query failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
 // Helper function to get client IP
 string GetClientIpAddress(HttpContext context)
 {
