@@ -329,6 +329,26 @@ app.MapGet("/health/db", async (AppDbContext context) =>
     }
 });
 
+// Test endpoint to debug location query issues
+app.MapGet("/test/simple-locations", async (AppDbContext db) =>
+{
+    try
+    {
+        // Test very simple projection first
+        var locations = await db.Locations
+            .Where(l => l.IsActive)
+            .Select(l => new { l.Id, l.Name, l.Address })
+            .Take(5)
+            .ToListAsync();
+        
+        return Results.Ok(new { count = locations.Count, data = locations });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Simple location query failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
 // Helper function to get client IP
 string GetClientIpAddress(HttpContext context)
 {
