@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/cezar/Desktop/acum-h/backend/WebApplication1/WebApplication1/WebApplication1.csproj": {}
+    "/home/cezar/Desktop/backend-ach/WebApplication1.csproj": {}
   },
   "projects": {
-    "/home/cezar/Desktop/acum-h/backend/WebApplication1/WebApplication1/WebApplication1.csproj": {
+    "/home/cezar/Desktop/backend-ach/WebApplication1.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/cezar/Desktop/acum-h/backend/WebApplication1/WebApplication1/WebApplication1.csproj",
+        "projectUniqueName": "/home/cezar/Desktop/backend-ach/WebApplication1.csproj",
         "projectName": "WebApplication1",
-        "projectPath": "/home/cezar/Desktop/acum-h/backend/WebApplication1/WebApplication1/WebApplication1.csproj",
+        "projectPath": "/home/cezar/Desktop/backend-ach/WebApplication1.csproj",
         "packagesPath": "/home/cezar/.nuget/packages/",
-        "outputPath": "/home/cezar/Desktop/acum-h/backend/WebApplication1/WebApplication1/obj/",
+        "outputPath": "/home/cezar/Desktop/backend-ach/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/cezar/.nuget/NuGet/NuGet.Config"

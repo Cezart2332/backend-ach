@@ -841,7 +841,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Name.ToLower().Contains(searchLower) ||
             l.Address.ToLower().Contains(searchLower) ||
             l.Tags.ToLower().Contains(searchLower) ||
-            l.Category.ToLower().Contains(searchLower)
+            l.Category.ToLower().Contains(searchLower) ||
+            (l.Description != null && l.Description.ToLower().Contains(searchLower))
         );
     }
 
@@ -862,7 +863,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.PhoneNumber,
             l.Latitude,
             l.Longitude,
-            l.Description,
+            Description = l.Description ?? string.Empty,
             Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()).ToArray(),
             // Optimize photo loading - only send if small or provide thumbnail
             Photo = l.Photo != null && l.Photo.Length <= 50000 ? Convert.ToBase64String(l.Photo) : "",
