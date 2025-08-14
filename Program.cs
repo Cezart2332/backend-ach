@@ -947,25 +947,19 @@ app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
   .WithOpenApi();
 
 // GET /locations - Optimized public locations endpoint with lazy photo loading
-app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, string? photoSize, AppDbContext db, IMemoryCache cache) =>
+app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, AppDbContext db, IMemoryCache cache) =>
 {
     try
     {
-    // Default pagination values
+    // Default pagination values with photo-aware limits
     var pageNum = page ?? 1;
-    var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
-    var skip = (pageNum - 1) * limitNum;
     var loadPhotos = includePhotos ?? true; // Photos enabled by default
-    var photoSizeLimit = photoSize?.ToLower() switch
-    {
-        "small" => 50000,    // 50KB max
-        "medium" => 200000,  // 200KB max  
-        "large" => 1000000,  // 1MB max
-        _ => 500000          // 500KB default
-    };
+    var maxLimit = loadPhotos ? 20 : 100; // Limit items when photos are included  
+    var limitNum = Math.Min(limit ?? (loadPhotos ? 8 : 50), maxLimit);
+    var skip = (pageNum - 1) * limitNum;
 
     // Create cache key based on parameters
-    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}_ps{photoSize}";
+    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
     
     // Try to get from cache first (cache for 5 minutes)
     if (cache.TryGetValue(cacheKey, out var cachedResult))
@@ -1012,9 +1006,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Longitude,
             l.Description,
             l.Tags,
-            // Optimized photo loading with size limits
-            Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? 
-                (l.Photo.Length > photoSizeLimit ? l.Photo.Take(photoSizeLimit).ToArray() : l.Photo) : null,
+            // Return full original photos without size limits
+            Photo = loadPhotos ? l.Photo : null,
             PhotoSize = l.Photo != null ? l.Photo.Length : 0,
             l.MenuName,
             MenuData = l.MenuData,
