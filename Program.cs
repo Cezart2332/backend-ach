@@ -954,207 +954,121 @@ app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /locations - Ultra-high-performance endpoint with aggressive optimization
+// GET /locations - Performance optimized endpoint
 app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, AppDbContext db, IMemoryCache cache) =>
 {
     try
     {
-    // Ultra-optimized pagination for maximum speed
-    var pageNum = page ?? 1;
-    var loadPhotos = includePhotos ?? true;
-    var limitNum = Math.Min(limit ?? 5, 15); // Very small batches for ultra-fast response
-    var skip = (pageNum - 1) * limitNum;
+        // Performance-optimized pagination
+        var pageNum = page ?? 1;
+        var loadPhotos = includePhotos ?? true;
+        var limitNum = Math.Min(limit ?? 3, 10); // Start with very small batches
+        var skip = (pageNum - 1) * limitNum;
 
-    // Create cache key
-    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
-    
-    // Check cache for non-photo requests only
-    if (!loadPhotos && cache.TryGetValue(cacheKey, out var cachedResult))
-    {
-        return Results.Ok(cachedResult);
-    }
-
-    // Build hyper-optimized query with minimal data selection
-    var baseQuery = db.Locations
-        .Where(l => l.IsActive)
-        .AsNoTracking()
-        .AsQueryable();
-
-    // Apply filters
-    if (!string.IsNullOrEmpty(category))
-    {
-        baseQuery = baseQuery.Where(l => l.Category.ToLower() == category.ToLower());
-    }
-
-    if (!string.IsNullOrEmpty(search))
-    {
-        var searchLower = search.ToLower();
-        baseQuery = baseQuery.Where(l => 
-            l.Name.ToLower().Contains(searchLower) ||
-            l.Address.ToLower().Contains(searchLower) ||
-            l.Tags.ToLower().Contains(searchLower) ||
-            l.Category.ToLower().Contains(searchLower) ||
-            (l.Description != null && l.Description.ToLower().Contains(searchLower))
-        );
-    }
-
-    // Execute optimized parallel queries
-    Task<List<object>> dataTask;
-    
-    if (loadPhotos)
-    {
-        // For photos: select minimal data with raw photo bytes
-        dataTask = baseQuery
-            .OrderBy(l => l.Name)
-            .Skip(skip)
-            .Take(limitNum)
-            .Select(l => new {
-                l.Id,
-                l.Name,
-                l.Address,
-                l.Category,
-                l.PhoneNumber,
-                l.Latitude,
-                l.Longitude,
-                l.Description,
-                l.Tags,
-                l.Photo,
-                l.MenuName,
-                l.CreatedAt,
-                l.UpdatedAt,
-                l.CompanyId
-            })
-            .ToListAsync()
-            .ContinueWith(task =>
-            {
-                var rawData = task.Result;
-                
-                // Parallel photo processing with aggressive optimization
-                var processedData = rawData.AsParallel()
-                    .WithDegreeOfParallelism(Environment.ProcessorCount)
-                    .Select(l => (object)new {
-                        l.Id,
-                        l.Name,
-                        l.Address,
-                        l.Category,
-                        l.PhoneNumber,
-                        l.Latitude,
-                        l.Longitude,
-                        Description = l.Description ?? string.Empty,
-                        Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                        Photo = l.Photo != null && l.Photo.Length > 0 ? 
-                            Convert.ToBase64String(l.Photo) : string.Empty,
-                        HasPhoto = l.Photo != null && l.Photo.Length > 0,
-                        PhotoSizeKB = l.Photo != null ? Math.Round((l.Photo.Length / 1024.0), 1) : 0,
-                        l.MenuName,
-                        HasMenu = !string.IsNullOrEmpty(l.MenuName),
-                        l.CreatedAt,
-                        l.UpdatedAt,
-                        CompanyId = l.CompanyId
-                    })
-                    .ToList();
-                    
-                return processedData;
-            });
-    }
-    else
-    {
-        // For no photos: ultra-fast minimal query
-        dataTask = baseQuery
-            .OrderBy(l => l.Name)
-            .Skip(skip)
-            .Take(limitNum)
-            .Select(l => new {
-                l.Id,
-                l.Name,
-                l.Address,
-                l.Category,
-                l.PhoneNumber,
-                l.Latitude,
-                l.Longitude,
-                l.Description,
-                l.Tags,
-                PhotoSize = l.Photo != null ? l.Photo.Length : 0,
-                l.MenuName,
-                l.CreatedAt,
-                l.UpdatedAt,
-                l.CompanyId
-            })
-            .ToListAsync()
-            .ContinueWith(task =>
-            {
-                var rawData = task.Result;
-                return rawData.Select(l => (object)new {
-                    l.Id,
-                    l.Name,
-                    l.Address,
-                    l.Category,
-                    l.PhoneNumber,
-                    l.Latitude,
-                    l.Longitude,
-                    Description = l.Description ?? string.Empty,
-                    Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                    Photo = string.Empty,
-                    HasPhoto = l.PhotoSize > 0,
-                    PhotoSizeKB = Math.Round((l.PhotoSize / 1024.0), 1),
-                    l.MenuName,
-                    HasMenu = !string.IsNullOrEmpty(l.MenuName),
-                    l.CreatedAt,
-                    l.UpdatedAt,
-                    CompanyId = l.CompanyId
-                }).ToList();
-            });
-    }
-
-    var countTask = baseQuery.CountAsync();
-    
-    // Execute both tasks in parallel
-    await Task.WhenAll(dataTask, countTask);
-    
-    var locations = await dataTask;
-    var totalCount = await countTask;
-
-    var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
-    
-    var result = new
-    {
-        data = locations,
-        pagination = new
-        {
-            page = pageNum,
-            limit = limitNum,
-            total = totalCount,
-            totalPages = totalPages,
-            hasNext = pageNum < totalPages,
-            hasPrev = pageNum > 1
-        },
-        performance = new
-        {
-            photosIncluded = loadPhotos,
-            batchSize = limitNum,
-            recommendation = limitNum < 10 ? "optimal" : "consider smaller batches for better performance"
-        }
-    };
-    
-    // Cache only non-photo responses
-    if (!loadPhotos)
-    {
-        var cacheOptions = new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-            Priority = CacheItemPriority.Normal,
-            Size = 1
-        };
-        cache.Set(cacheKey, result, cacheOptions);
-    }
+        // Cache key
+        var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
         
-    return Results.Ok(result);
+        // Check cache for non-photo requests
+        if (!loadPhotos && cache.TryGetValue(cacheKey, out var cachedResult))
+        {
+            return Results.Ok(cachedResult);
+        }
+
+        // Build base query
+        var query = db.Locations
+            .Where(l => l.IsActive)
+            .AsNoTracking();
+
+        // Apply filters
+        if (!string.IsNullOrEmpty(category))
+        {
+            query = query.Where(l => l.Category.ToLower() == category.ToLower());
+        }
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            var searchLower = search.ToLower();
+            query = query.Where(l => 
+                l.Name.ToLower().Contains(searchLower) ||
+                l.Address.ToLower().Contains(searchLower) ||
+                l.Tags.ToLower().Contains(searchLower)
+            );
+        }
+
+        // Get count and data in parallel
+        var countTask = query.CountAsync();
+        var dataTask = query
+            .OrderBy(l => l.Name)
+            .Skip(skip)
+            .Take(limitNum)
+            .ToListAsync();
+
+        await Task.WhenAll(countTask, dataTask);
+        
+        var totalCount = await countTask;
+        var rawLocations = await dataTask;
+
+        // Process results efficiently
+        var locations = rawLocations.Select(l => new {
+            l.Id,
+            l.Name,
+            l.Address,
+            l.Category,
+            l.PhoneNumber,
+            l.Latitude,
+            l.Longitude,
+            Description = l.Description ?? string.Empty,
+            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
+            Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? 
+                Convert.ToBase64String(l.Photo) : string.Empty,
+            HasPhoto = l.Photo != null && l.Photo.Length > 0,
+            PhotoSizeKB = l.Photo != null ? Math.Round((l.Photo.Length / 1024.0), 1) : 0,
+            l.MenuName,
+            HasMenu = !string.IsNullOrEmpty(l.MenuName),
+            l.CreatedAt,
+            l.UpdatedAt,
+            CompanyId = l.CompanyId
+        }).ToList();
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
+        
+        var result = new
+        {
+            data = locations,
+            pagination = new
+            {
+                page = pageNum,
+                limit = limitNum,
+                total = totalCount,
+                totalPages = totalPages,
+                hasNext = pageNum < totalPages,
+                hasPrev = pageNum > 1
+            },
+            performance = new
+            {
+                photosIncluded = loadPhotos,
+                batchSize = limitNum,
+                tip = "Use smaller limit values (1-5) for faster photo loading"
+            }
+        };
+        
+        // Cache non-photo responses
+        if (!loadPhotos)
+        {
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                Priority = CacheItemPriority.Normal
+            };
+            cache.Set(cacheKey, result, cacheOptions);
+        }
+            
+        return Results.Ok(result);
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Error in /locations endpoint");
         return Results.Problem(
-            detail: "An error occurred while fetching locations",
+            detail: $"Error fetching locations: {ex.Message}",
             statusCode: 500,
             title: "Internal Server Error"
         );
