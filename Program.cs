@@ -947,7 +947,7 @@ app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
   .WithOpenApi();
 
 // GET /locations - Optimized public locations endpoint with lazy photo loading
-app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, AppDbContext db, IMemoryCache cache) =>
+app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, string? photoSize, AppDbContext db, IMemoryCache cache) =>
 {
     try
     {
@@ -956,9 +956,16 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
     var skip = (pageNum - 1) * limitNum;
     var loadPhotos = includePhotos ?? true; // Photos enabled by default
+    var photoSizeLimit = photoSize?.ToLower() switch
+    {
+        "small" => 50000,    // 50KB max
+        "medium" => 200000,  // 200KB max  
+        "large" => 1000000,  // 1MB max
+        _ => 500000          // 500KB default
+    };
 
     // Create cache key based on parameters
-    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
+    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}_ps{photoSize}";
     
     // Try to get from cache first (cache for 5 minutes)
     if (cache.TryGetValue(cacheKey, out var cachedResult))
@@ -990,7 +997,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         );
     }
 
-    // Optimized query - only load photos when explicitly requested
+    // Optimized query with streaming and limited photo processing
     var rawLocations = await query
         .OrderBy(l => l.Name)
         .Skip(skip)
@@ -1005,7 +1012,10 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Longitude,
             l.Description,
             l.Tags,
-            Photo = loadPhotos ? l.Photo : null, // Conditional photo loading
+            // Optimized photo loading with size limits
+            Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? 
+                (l.Photo.Length > photoSizeLimit ? l.Photo.Take(photoSizeLimit).ToArray() : l.Photo) : null,
+            PhotoSize = l.Photo != null ? l.Photo.Length : 0,
             l.MenuName,
             MenuData = l.MenuData,
             l.CreatedAt,
@@ -1017,8 +1027,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     // Get total count efficiently using the same query
     var totalCount = await query.CountAsync();
 
-    // Shape result client-side with optimized processing
-    var locations = rawLocations.Select(l => new {
+    // Shape result with optimized parallel photo processing
+    var locations = rawLocations.AsParallel().Select(l => new {
         l.Id,
         l.Name,
         l.Address,
@@ -1028,8 +1038,10 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         l.Longitude,
         Description = l.Description ?? string.Empty,
         Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
-        Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? Convert.ToBase64String(l.Photo) : string.Empty,
-        HasPhoto = l.Photo != null && l.Photo.Length > 0, // Photo availability indicator
+        Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? 
+            Convert.ToBase64String(l.Photo) : string.Empty,
+        HasPhoto = l.PhotoSize > 0, // Use precomputed size
+        PhotoSizeKB = Math.Round((l.PhotoSize / 1024.0), 1), // Size indicator
         l.MenuName,
         HasMenu = l.MenuData != null && l.MenuData.Length > 0,
         l.CreatedAt,
