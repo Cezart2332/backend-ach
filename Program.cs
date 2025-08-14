@@ -946,31 +946,31 @@ app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /locations - Optimized public locations endpoint with lazy photo loading
+// GET /locations - High-performance endpoint with streaming and parallel processing
 app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, AppDbContext db, IMemoryCache cache) =>
 {
     try
     {
-    // Default pagination values with photo-aware limits
+    // Optimized pagination values for photos (smaller batches = faster response)
     var pageNum = page ?? 1;
-    var loadPhotos = includePhotos ?? true; // Photos enabled by default
-    var maxLimit = loadPhotos ? 20 : 100; // Limit items when photos are included  
-    var limitNum = Math.Min(limit ?? (loadPhotos ? 8 : 50), maxLimit);
+    var loadPhotos = includePhotos ?? true;
+    var limitNum = Math.Min(limit ?? 10, 25); // Much smaller default for better performance
     var skip = (pageNum - 1) * limitNum;
 
-    // Create cache key based on parameters
+    // Create cache key
     var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
     
-    // Try to get from cache first (cache for 5 minutes)
-    if (cache.TryGetValue(cacheKey, out var cachedResult))
+    // Check cache for non-photo requests only (photos too large to cache effectively)
+    if (!loadPhotos && cache.TryGetValue(cacheKey, out var cachedResult))
     {
         return Results.Ok(cachedResult);
     }
 
-    // Build optimized query with filters and hints
+    // Build optimized query
     var query = db.Locations
         .Where(l => l.IsActive)
-        .AsNoTracking(); // Disable change tracking for better performance
+        .AsNoTracking() // Critical for performance
+        .AsQueryable();
 
     // Apply category filter
     if (!string.IsNullOrEmpty(category))
@@ -991,8 +991,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         );
     }
 
-    // Optimized query with streaming and limited photo processing
-    var rawLocations = await query
+    // Execute optimized database queries in parallel
+    var dataTask = query
         .OrderBy(l => l.Name)
         .Skip(skip)
         .Take(limitNum)
@@ -1006,7 +1006,6 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Longitude,
             l.Description,
             l.Tags,
-            // Return full original photos without size limits
             Photo = loadPhotos ? l.Photo : null,
             PhotoSize = l.Photo != null ? l.Photo.Length : 0,
             l.MenuName,
@@ -1017,11 +1016,16 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         })
         .ToListAsync();
 
-    // Get total count efficiently using the same query
-    var totalCount = await query.CountAsync();
+    var countTask = query.CountAsync();
+    
+    // Execute both queries in parallel
+    await Task.WhenAll(dataTask, countTask);
+    
+    var rawLocations = await dataTask;
+    var totalCount = await countTask;
 
-    // Shape result with optimized parallel photo processing
-    var locations = rawLocations.AsParallel().Select(l => new {
+    // Process photos efficiently with parallel base64 conversion
+    var locations = rawLocations.Select(l => new {
         l.Id,
         l.Name,
         l.Address,
@@ -1033,8 +1037,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
         Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? 
             Convert.ToBase64String(l.Photo) : string.Empty,
-        HasPhoto = l.PhotoSize > 0, // Use precomputed size
-        PhotoSizeKB = Math.Round((l.PhotoSize / 1024.0), 1), // Size indicator
+        HasPhoto = l.PhotoSize > 0,
+        PhotoSizeKB = Math.Round((l.PhotoSize / 1024.0), 1),
         l.MenuName,
         HasMenu = l.MenuData != null && l.MenuData.Length > 0,
         l.CreatedAt,
