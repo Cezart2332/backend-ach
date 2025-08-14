@@ -821,11 +821,12 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
     var skip = (pageNum - 1) * limitNum;
-    var loadPhotos = includePhotos ?? false; // Photos disabled by default for performance
+    var loadPhotos = includePhotos ?? true; // Photos enabled by default
 
-    // Build query with filters
+    // Build optimized query with filters
     var query = db.Events
-        .Where(e => active != false ? e.IsActive : true); // Default to active events only
+        .Where(e => active != false ? e.IsActive : true) // Default to active events only
+        .AsNoTracking(); // Disable change tracking for better performance
 
     // Apply search filter
     if (!string.IsNullOrEmpty(search))
@@ -954,7 +955,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
     var skip = (pageNum - 1) * limitNum;
-    var loadPhotos = includePhotos ?? false; // Photos disabled by default for performance
+    var loadPhotos = includePhotos ?? true; // Photos enabled by default
 
     // Create cache key based on parameters
     var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
@@ -965,9 +966,10 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         return Results.Ok(cachedResult);
     }
 
-    // Build query with filters
+    // Build optimized query with filters and hints
     var query = db.Locations
-        .Where(l => l.IsActive);
+        .Where(l => l.IsActive)
+        .AsNoTracking(); // Disable change tracking for better performance
 
     // Apply category filter
     if (!string.IsNullOrEmpty(category))
@@ -1051,16 +1053,15 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         }
     };
     
-    // Cache the result for 5 minutes (only cache non-photo requests for performance)
-    if (!loadPhotos)
+    // Cache the result for 2 minutes for photo requests, 5 minutes for non-photo requests
+    var cacheTimeout = loadPhotos ? TimeSpan.FromMinutes(2) : TimeSpan.FromMinutes(5);
+    var cacheOptions = new MemoryCacheEntryOptions
     {
-        var cacheOptions = new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-            Priority = CacheItemPriority.Normal
-        };
-        cache.Set(cacheKey, result, cacheOptions);
-    }
+        AbsoluteExpirationRelativeToNow = cacheTimeout,
+        Priority = CacheItemPriority.Normal,
+        Size = 1 // Logical size for cache eviction
+    };
+    cache.Set(cacheKey, result, cacheOptions);
         
     return Results.Ok(result);
     }
