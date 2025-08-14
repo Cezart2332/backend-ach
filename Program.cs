@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Caching.Memory;
 using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
@@ -212,6 +213,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+// Add Memory Caching for performance optimization
+builder.Services.AddMemoryCache();
+builder.Services.AddResponseCaching();
+
 // Configure HTTPS and HSTS
 builder.Services.AddHsts(options =>
 {
@@ -261,6 +266,9 @@ Console.WriteLine("=== MIGRATION PROCESS COMPLETED ===");
 // Configure middleware pipeline - flexible for development and production
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// Add response caching for better performance
+app.UseResponseCaching();
 
 // Security headers only in production or when explicitly configured
 if (!builder.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Security:EnableSecurityHeaders"))
@@ -804,8 +812,8 @@ app.MapGet("/companies", async (AppDbContext db) =>
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /events - Public events endpoint with pagination and optimization
-app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, AppDbContext db) =>
+// GET /events - Optimized public events endpoint with lazy photo loading
+app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, bool? includePhotos, AppDbContext db) =>
 {
     try
     {
@@ -813,6 +821,7 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
     var skip = (pageNum - 1) * limitNum;
+    var loadPhotos = includePhotos ?? false; // Photos disabled by default for performance
 
     // Build query with filters
     var query = db.Events
@@ -831,9 +840,6 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
         );
     }
 
-    // Get total count for pagination
-    var totalCount = await query.CountAsync();
-
     // Get paginated results with optimized projection
     var rawEvents = await query
         .OrderBy(e => e.EventDate)
@@ -845,7 +851,7 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             e.Title,
             e.Description,
             e.Tags,
-            e.Photo,
+            Photo = loadPhotos ? e.Photo : null, // Conditional photo loading
             e.CompanyId,
             e.EventDate,
             e.StartTime,
@@ -859,13 +865,17 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
         })
         .ToListAsync();
 
+    // Get total count efficiently
+    var totalCount = await query.CountAsync();
+
     var events = rawEvents.Select(e => new EventResponse {
         Id = e.Id,
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
         Likes = 0,
-        Photo = e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty,
+        Photo = loadPhotos && e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty,
+        HasPhoto = e.Photo != null && e.Photo.Length > 0, // Photo availability indicator
         Company = string.Empty,
         CompanyId = e.CompanyId,
         EventDate = e.EventDate,
@@ -908,8 +918,35 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /locations - Public locations endpoint with pagination and optimization
-app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, AppDbContext db) =>
+// GET /events/{id}/photo - Get event photo separately for lazy loading
+app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
+{
+    try
+    {
+        var eventEntity = await db.Events
+            .Where(e => e.Id == id && e.IsActive)
+            .Select(e => new { e.Photo })
+            .FirstOrDefaultAsync();
+        
+        if (eventEntity?.Photo == null || eventEntity.Photo.Length == 0)
+        {
+            return Results.NotFound(new { error = "Photo not found" });
+        }
+
+        var base64Photo = Convert.ToBase64String(eventEntity.Photo);
+        return Results.Ok(new { photo = base64Photo });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error fetching photo for event {EventId}", id);
+        return Results.Problem("An error occurred while fetching photo");
+    }
+}).WithTags("Events")
+  .RequireRateLimiting("GeneralPolicy")
+  .WithOpenApi();
+
+// GET /locations - Optimized public locations endpoint with lazy photo loading
+app.MapGet("/locations", async (int? page, int? limit, string? category, string? search, bool? includePhotos, AppDbContext db, IMemoryCache cache) =>
 {
     try
     {
@@ -917,6 +954,16 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     var pageNum = page ?? 1;
     var limitNum = Math.Min(limit ?? 50, 100); // Max 100 items per request
     var skip = (pageNum - 1) * limitNum;
+    var loadPhotos = includePhotos ?? false; // Photos disabled by default for performance
+
+    // Create cache key based on parameters
+    var cacheKey = $"locations_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
+    
+    // Try to get from cache first (cache for 5 minutes)
+    if (cache.TryGetValue(cacheKey, out var cachedResult))
+    {
+        return Results.Ok(cachedResult);
+    }
 
     // Build query with filters
     var query = db.Locations
@@ -941,10 +988,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         );
     }
 
-    // Get total count for pagination
-    var totalCount = await query.CountAsync();
-
-    // First fetch raw data (only EF-translatable operations here)
+    // Optimized query - only load photos when explicitly requested
     var rawLocations = await query
         .OrderBy(l => l.Name)
         .Skip(skip)
@@ -959,16 +1003,19 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             l.Longitude,
             l.Description,
             l.Tags,
-            l.Photo,
+            Photo = loadPhotos ? l.Photo : null, // Conditional photo loading
             l.MenuName,
-            l.MenuData,
+            MenuData = l.MenuData,
             l.CreatedAt,
             l.UpdatedAt,
             l.CompanyId
         })
         .ToListAsync();
 
-    // Shape result client-side (safe string operations & base64)
+    // Get total count efficiently using the same query
+    var totalCount = await query.CountAsync();
+
+    // Shape result client-side with optimized processing
     var locations = rawLocations.Select(l => new {
         l.Id,
         l.Name,
@@ -979,7 +1026,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         l.Longitude,
         Description = l.Description ?? string.Empty,
         Tags = string.IsNullOrEmpty(l.Tags) ? Array.Empty<string>() : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
-        Photo = l.Photo != null && l.Photo.Length > 0 ? Convert.ToBase64String(l.Photo) : string.Empty,
+        Photo = loadPhotos && l.Photo != null && l.Photo.Length > 0 ? Convert.ToBase64String(l.Photo) : string.Empty,
+        HasPhoto = l.Photo != null && l.Photo.Length > 0, // Photo availability indicator
         l.MenuName,
         HasMenu = l.MenuData != null && l.MenuData.Length > 0,
         l.CreatedAt,
@@ -988,8 +1036,8 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     }).ToList();
 
     var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
-        
-    return Results.Ok(new
+    
+    var result = new
     {
         data = locations,
         pagination = new
@@ -1001,7 +1049,20 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             hasNext = pageNum < totalPages,
             hasPrev = pageNum > 1
         }
-    });
+    };
+    
+    // Cache the result for 5 minutes (only cache non-photo requests for performance)
+    if (!loadPhotos)
+    {
+        var cacheOptions = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+            Priority = CacheItemPriority.Normal
+        };
+        cache.Set(cacheKey, result, cacheOptions);
+    }
+        
+    return Results.Ok(result);
     }
     catch (Exception ex)
     {
@@ -1011,6 +1072,33 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             statusCode: 500,
             title: "Internal Server Error"
         );
+    }
+}).WithTags("Locations")
+  .RequireRateLimiting("GeneralPolicy")
+  .WithOpenApi();
+
+// GET /locations/{id}/photo - Get location photo separately for lazy loading
+app.MapGet("/locations/{id}/photo", async (int id, AppDbContext db) =>
+{
+    try
+    {
+        var location = await db.Locations
+            .Where(l => l.Id == id && l.IsActive)
+            .Select(l => new { l.Photo })
+            .FirstOrDefaultAsync();
+        
+        if (location?.Photo == null || location.Photo.Length == 0)
+        {
+            return Results.NotFound(new { error = "Photo not found" });
+        }
+
+        var base64Photo = Convert.ToBase64String(location.Photo);
+        return Results.Ok(new { photo = base64Photo });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error fetching photo for location {LocationId}", id);
+        return Results.Problem("An error occurred while fetching photo");
     }
 }).WithTags("Locations")
   .RequireRateLimiting("GeneralPolicy")

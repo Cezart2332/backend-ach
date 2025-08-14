@@ -1,54 +1,108 @@
 {
   "version": 2,
-  "dgSpecHash": "c/i1P+4uXgM=",
-  "success": true,
-  "projectFilePath": "/home/cezar/Desktop/backend-ach/WebApplication1.csproj",
-  "expectedPackageFiles": [
-    "/home/cezar/.nuget/packages/bcrypt.net-next/4.0.3/bcrypt.net-next.4.0.3.nupkg.sha512",
-    "/home/cezar/.nuget/packages/humanizer.core/2.14.1/humanizer.core.2.14.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.aspnetcore.authentication.jwtbearer/9.0.0/microsoft.aspnetcore.authentication.jwtbearer.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.aspnetcore.openapi/9.0.2/microsoft.aspnetcore.openapi.9.0.2.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore/7.0.20/microsoft.entityframeworkcore.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore.abstractions/7.0.20/microsoft.entityframeworkcore.abstractions.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore.analyzers/7.0.20/microsoft.entityframeworkcore.analyzers.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore.design/7.0.20/microsoft.entityframeworkcore.design.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore.relational/7.0.20/microsoft.entityframeworkcore.relational.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.entityframeworkcore.tools/7.0.20/microsoft.entityframeworkcore.tools.7.0.20.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.caching.abstractions/7.0.0/microsoft.extensions.caching.abstractions.7.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.caching.memory/7.0.0/microsoft.extensions.caching.memory.7.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.configuration.abstractions/9.0.0/microsoft.extensions.configuration.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.configuration.binder/9.0.0/microsoft.extensions.configuration.binder.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.dependencyinjection/9.0.0/microsoft.extensions.dependencyinjection.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/9.0.0/microsoft.extensions.dependencyinjection.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.dependencymodel/9.0.0/microsoft.extensions.dependencymodel.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.diagnostics.abstractions/9.0.0/microsoft.extensions.diagnostics.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.fileproviders.abstractions/9.0.0/microsoft.extensions.fileproviders.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.hosting.abstractions/9.0.0/microsoft.extensions.hosting.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.logging/9.0.0/microsoft.extensions.logging.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.logging.abstractions/9.0.0/microsoft.extensions.logging.abstractions.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.options/9.0.0/microsoft.extensions.options.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.extensions.primitives/9.0.0/microsoft.extensions.primitives.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.abstractions/8.2.1/microsoft.identitymodel.abstractions.8.2.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.jsonwebtokens/8.2.1/microsoft.identitymodel.jsonwebtokens.8.2.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.logging/8.2.1/microsoft.identitymodel.logging.8.2.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.protocols/8.0.1/microsoft.identitymodel.protocols.8.0.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.protocols.openidconnect/8.0.1/microsoft.identitymodel.protocols.openidconnect.8.0.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.identitymodel.tokens/8.2.1/microsoft.identitymodel.tokens.8.2.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/microsoft.openapi/1.6.17/microsoft.openapi.1.6.17.nupkg.sha512",
-    "/home/cezar/.nuget/packages/mono.texttemplating/2.2.1/mono.texttemplating.2.2.1.nupkg.sha512",
-    "/home/cezar/.nuget/packages/mysqlconnector/2.2.5/mysqlconnector.2.2.5.nupkg.sha512",
-    "/home/cezar/.nuget/packages/pomelo.entityframeworkcore.mysql/7.0.0/pomelo.entityframeworkcore.mysql.7.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog/4.2.0/serilog.4.2.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.aspnetcore/9.0.0/serilog.aspnetcore.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.extensions.hosting/9.0.0/serilog.extensions.hosting.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.extensions.logging/9.0.0/serilog.extensions.logging.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.formatting.compact/3.0.0/serilog.formatting.compact.3.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.settings.configuration/9.0.0/serilog.settings.configuration.9.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.sinks.console/6.0.0/serilog.sinks.console.6.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.sinks.debug/3.0.0/serilog.sinks.debug.3.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/serilog.sinks.file/6.0.0/serilog.sinks.file.6.0.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/system.codedom/4.4.0/system.codedom.4.4.0.nupkg.sha512",
-    "/home/cezar/.nuget/packages/system.identitymodel.tokens.jwt/8.2.1/system.identitymodel.tokens.jwt.8.2.1.nupkg.sha512"
-  ],
-  "logs": []
+  "dgSpecHash": "yTVR7aYAB9E=",
+  "success": false,
+  "projectFilePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'BCrypt.Net-Next (>= 4.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "BCrypt.Net-Next",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.AspNetCore.OpenApi (>= 9.0.2)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Microsoft.AspNetCore.OpenApi",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.EntityFrameworkCore.Design (>= 7.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Microsoft.EntityFrameworkCore.Design",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.EntityFrameworkCore.Tools (>= 7.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Microsoft.EntityFrameworkCore.Tools",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Pomelo.EntityFrameworkCore.MySql (>= 7.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Pomelo.EntityFrameworkCore.MySql",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.AspNetCore.Authentication.JwtBearer (>= 9.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Microsoft.AspNetCore.Authentication.JwtBearer",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'System.IdentityModel.Tokens.Jwt (>= 8.2.1)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "System.IdentityModel.Tokens.Jwt",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.AspNetCore (>= 9.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Serilog.AspNetCore",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.Sinks.File (>= 6.0.0)' for 'net9.0'.",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "filePath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "libraryId": "Serilog.Sinks.File",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    }
+  ]
 }
