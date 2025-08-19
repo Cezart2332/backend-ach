@@ -11,8 +11,8 @@ using WebApplication1.Models;
 namespace WebApplication1.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250819140814_AddFilePathColumns")]
-    partial class AddFilePathColumns
+    [Migration("20250819144804_AddFilePathColumnsSafe")]
+    partial class AddFilePathColumnsSafe
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
