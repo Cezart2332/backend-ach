@@ -1814,7 +1814,7 @@ app.MapPost("/companies/{id}/upload-menu", (int id, HttpRequest request, AppDbCo
 // ==================== LOCATION MANAGEMENT ENDPOINTS ====================
 
 // Get all locations for a company
-app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContext db) =>
+app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContext db, IFileStorageService fileStorage) =>
 {
     var locations = await db.Locations
         .Where(l => l.CompanyId == companyId && l.IsActive)
@@ -1829,11 +1829,19 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         l.PhoneNumber,
         l.Latitude,
         l.Longitude,
-    l.Description,
+        l.Description,
         Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',').Select(t => t.Trim()).ToArray(),
-        Photo = Convert.ToBase64String(l.Photo),
+        
+        // New file storage approach
+        PhotoUrl = !string.IsNullOrEmpty(l.PhotoPath) ? fileStorage.GetFileUrl(l.PhotoPath) : string.Empty,
+        MenuUrl = !string.IsNullOrEmpty(l.MenuPath) ? fileStorage.GetFileUrl(l.MenuPath) : string.Empty,
+        HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
+        HasMenu = !string.IsNullOrEmpty(l.MenuPath) || l.HasMenu,
+        
+        // Legacy support for backward compatibility
+        Photo = !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
         MenuName = l.MenuName,
-        HasMenu = l.MenuData.Length > 0,
+        
         l.CreatedAt,
         l.UpdatedAt
     }).ToList();

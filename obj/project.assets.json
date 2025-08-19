@@ -1900,11 +1900,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "projectUniqueName": "C:\\Users\\Cezar\\Desktop\\acum-h\\backend\\WebApplication1\\WebApplication1\\WebApplication1.csproj",
       "projectName": "WebApplication1",
-      "projectPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\WebApplication1.csproj",
+      "projectPath": "C:\\Users\\Cezar\\Desktop\\acum-h\\backend\\WebApplication1\\WebApplication1\\WebApplication1.csproj",
       "packagesPath": "C:\\Users\\Cezar\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Cezar\\Desktop\\backend-ach\\obj\\",
+      "outputPath": "C:\\Users\\Cezar\\Desktop\\acum-h\\backend\\WebApplication1\\WebApplication1\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Cezar\\AppData\\Roaming\\NuGet\\NuGet.Config"
