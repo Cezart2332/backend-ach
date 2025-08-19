@@ -1901,6 +1901,10 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
 
         var form = await req.ReadFormAsync();
         
+        // Debug logging for form data
+        Log.Information("Form fields received: {Fields}", string.Join(", ", form.Keys));
+        Log.Information("Form files received: {Files}", string.Join(", ", form.Files.Select(f => f.Name)));
+        
         // Check if company exists
         var company = await db.Companies.FindAsync(companyId);
         if (company is null)
@@ -1985,11 +1989,18 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         var photoFile = form.Files.GetFile("photo");
         var menuFile = form.Files.GetFile("menu");
 
+        // Debug logging for file uploads
+        Log.Information("Photo file received: {HasPhoto}, Size: {PhotoSize}", 
+            photoFile != null, photoFile?.Length ?? 0);
+        Log.Information("Menu file received: {HasMenu}, Size: {MenuSize}", 
+            menuFile != null, menuFile?.Length ?? 0);
+
         // Handle photo upload to file storage
         if (photoFile != null && photoFile.Length > 0)
         {
             try
             {
+                Log.Information("Processing photo upload for location {LocationId}", location.Id);
                 var photoPath = await fileStorage.SaveFileAsync(photoFile, location.Id, "photos");
                 location.PhotoPath = photoPath;
                 Log.Information("Photo saved for location {LocationId}: {PhotoPath}", location.Id, photoPath);
@@ -1999,6 +2010,10 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
                 Log.Error(ex, "Failed to save photo for location {LocationId}", location.Id);
                 // Continue without photo rather than failing the entire operation
             }
+        }
+        else
+        {
+            Log.Information("No photo file received or file is empty for location {LocationId}", location.Id);
         }
 
         // Handle menu upload to file storage
