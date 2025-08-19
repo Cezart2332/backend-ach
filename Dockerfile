@@ -7,21 +7,14 @@ RUN dotnet publish -c Release -o /app
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 
-# Create upload directory with proper permissions
-RUN mkdir -p /var/www/uploads && \
-    chown -R app:app /var/www/uploads && \
-    chmod -R 755 /var/www/uploads
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN groupadd -r app && useradd -r -g app app
+# Create upload directory
+RUN mkdir -p /var/www/uploads && chmod -R 755 /var/www/uploads
 
+# Copy application files
 COPY --from=build /app .
-
-# Change ownership of app files
-RUN chown -R app:app /app
-
-# Switch to non-root user
-USER app
 
 # Expose port
 EXPOSE 8080
