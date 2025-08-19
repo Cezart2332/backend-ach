@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.FileProviders;
 using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
@@ -1134,51 +1135,6 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
     catch (Exception ex)
     {
         Log.Error(ex, "Error fetching locations");
-        return Results.Problem(
-            detail: $"Error fetching locations: {ex.Message}",
-            statusCode: 500,
-            title: "Internal Server Error"
-        );
-    }
-});
-
-        var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
-        
-        var result = new
-        {
-            data = locations,
-            pagination = new
-            {
-                page = pageNum,
-                limit = limitNum,
-                total = totalCount,
-                totalPages = totalPages,
-                hasNext = pageNum < totalPages,
-                hasPrev = pageNum > 1
-            },
-            performance = new
-            {
-                photosIncluded = loadPhotos,
-                batchSize = limitNum,
-                tip = "Use smaller limit values (1-5) for faster photo loading"
-            }
-        };
-        
-        // Cache non-photo responses
-        if (!loadPhotos)
-        {
-            var cacheOptions = new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                Priority = CacheItemPriority.Normal
-            };
-            cache.Set(cacheKey, result, cacheOptions);
-        }
-            
-        return Results.Ok(result);
-    }
-    catch (Exception ex)
-    {
         return Results.Problem(
             detail: $"Error fetching locations: {ex.Message}",
             statusCode: 500,
