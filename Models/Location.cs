@@ -20,7 +20,7 @@ namespace WebApplication1.Models
         public string? PhotoPath { get; set; }
         public string? MenuPath { get; set; }
         
-        // Legacy binary storage (deprecated, will be removed in future migration)
+        // Legacy binary storage (temporarily kept for migration)
         public byte[] Photo { get; set; } = Array.Empty<byte>();
         public string MenuName { get; set; } = string.Empty;
         public byte[] MenuData { get; set; } = Array.Empty<byte>();
