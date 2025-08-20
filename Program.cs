@@ -433,75 +433,77 @@ app.MapGet("/test/list-files/{locationId}", (int locationId) =>
 }).WithTags("Test");
 
 // Test endpoint to diagnose file storage issues
-app.MapPost("/test/file-storage-diagnostic", async (HttpRequest request, IFileStorageService fileStorage) =>
+app.MapGet("/test/file-storage-diagnostic", async (IFileStorageService fileStorage) =>
 {
     try
     {
         var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
-        
         var diagnostics = new List<object>();
         
-        // Test 1: Check base directory permissions
-        diagnostics.Add(new { 
-            test = "Base Directory Check",
-            path = fileStorageBasePath,
-            exists = Directory.Exists(fileStorageBasePath),
-            canRead = TryReadDirectory(fileStorageBasePath),
-            canWrite = TryWriteToDirectory(fileStorageBasePath)
-        });
-        
-        // Test 2: Check directory creation
-        var testPath = Path.Combine(fileStorageBasePath, "test_location", "photos");
+        // Test 1: Check base directory
         try
         {
+            var baseExists = Directory.Exists(fileStorageBasePath);
+            diagnostics.Add(new { 
+                test = "Base Directory Check",
+                path = fileStorageBasePath,
+                exists = baseExists
+            });
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(new { 
+                test = "Base Directory Check",
+                error = ex.Message
+            });
+        }
+        
+        // Test 2: Try to create a test directory
+        try
+        {
+            var testPath = Path.Combine(fileStorageBasePath, "diagnostic_test");
             Directory.CreateDirectory(testPath);
-            var directoryCreated = Directory.Exists(testPath);
+            var created = Directory.Exists(testPath);
             
-            // Clean up test directory
-            if (directoryCreated)
+            if (created)
             {
-                Directory.Delete(Path.Combine(fileStorageBasePath, "test_location"), true);
+                Directory.Delete(testPath);
             }
             
             diagnostics.Add(new {
                 test = "Directory Creation",
-                path = testPath,
-                success = directoryCreated
+                success = created
             });
         }
         catch (Exception ex)
         {
             diagnostics.Add(new {
-                test = "Directory Creation",
-                path = testPath,
+                test = "Directory Creation", 
                 error = ex.Message
             });
         }
         
-        // Test 3: Check file creation
-        var testFilePath = Path.Combine(fileStorageBasePath, "test_file.txt");
+        // Test 3: Try to create a test file
         try
         {
-            await File.WriteAllTextAsync(testFilePath, "test content");
-            var fileCreated = File.Exists(testFilePath);
+            var testFilePath = Path.Combine(fileStorageBasePath, "diagnostic_test.txt");
+            await File.WriteAllTextAsync(testFilePath, "test");
+            var created = File.Exists(testFilePath);
             
-            // Clean up test file
-            if (fileCreated)
+            if (created)
             {
                 File.Delete(testFilePath);
             }
             
             diagnostics.Add(new {
                 test = "File Creation",
-                path = testFilePath,
-                success = fileCreated
+                success = created
             });
         }
         catch (Exception ex)
         {
             diagnostics.Add(new {
                 test = "File Creation",
-                path = testFilePath,
                 error = ex.Message
             });
         }
@@ -515,33 +517,23 @@ app.MapPost("/test/file-storage-diagnostic", async (HttpRequest request, IFileSt
     {
         return Results.Problem($"File storage diagnostic failed: {ex.Message}");
     }
-    
-    static bool TryReadDirectory(string path)
+}).WithTags("Test");
+
+// Test endpoint to check if FileStorageService is working
+app.MapGet("/test/file-service-test", (IFileStorageService fileStorage) =>
+{
+    try
     {
-        try
-        {
-            Directory.GetFiles(path);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var testUrl = fileStorage.GetFileUrl("test/path/file.jpg");
+        return Results.Ok(new { 
+            serviceWorking = true,
+            testUrl = testUrl,
+            serviceType = fileStorage.GetType().Name
+        });
     }
-    
-    static bool TryWriteToDirectory(string path)
+    catch (Exception ex)
     {
-        try
-        {
-            var testFile = Path.Combine(path, "write_test.tmp");
-            File.WriteAllText(testFile, "test");
-            File.Delete(testFile);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        return Results.Problem($"FileStorageService error: {ex.Message}");
     }
 }).WithTags("Test");
 
