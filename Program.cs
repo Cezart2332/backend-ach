@@ -374,6 +374,64 @@ app.MapGet("/health/db", async (AppDbContext context) =>
     }
 });
 
+// Test endpoint to check file existence
+app.MapGet("/test/file-exists/{locationId}/{fileType}/{fileName}", (int locationId, string fileType, string fileName, IFileStorageService fileStorage) =>
+{
+    try
+    {
+        var filePath = $"locations/{locationId}/{fileType}/{fileName}";
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var fullPath = Path.Combine(fileStorageBasePath, filePath.Replace('/', Path.DirectorySeparatorChar));
+        
+        var exists = File.Exists(fullPath);
+        var url = fileStorage.GetFileUrl(filePath);
+        
+        return Results.Ok(new { 
+            filePath, 
+            fullPath, 
+            exists, 
+            url,
+            baseStoragePath = fileStorageBasePath
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"File check failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
+// Test endpoint to list files in a location directory
+app.MapGet("/test/list-files/{locationId}", (int locationId) =>
+{
+    try
+    {
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var locationPath = Path.Combine(fileStorageBasePath, "locations", locationId.ToString());
+        
+        var result = new
+        {
+            locationPath,
+            exists = Directory.Exists(locationPath),
+            files = Directory.Exists(locationPath) 
+                ? Directory.GetFiles(locationPath, "*", SearchOption.AllDirectories)
+                    .Select(f => new 
+                    {
+                        fullPath = f,
+                        relativePath = Path.GetRelativePath(fileStorageBasePath, f).Replace('\\', '/'),
+                        size = new FileInfo(f).Length,
+                        lastModified = new FileInfo(f).LastWriteTime
+                    }).ToArray()
+                : Array.Empty<object>()
+        };
+        
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Directory listing failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
 // Test endpoint to debug location query issues
 app.MapGet("/test/simple-locations", async (AppDbContext db) =>
 {
