@@ -2116,7 +2116,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
 });
 
 // Update a location
-app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =>
+app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {
@@ -2134,13 +2134,14 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
         var form = await req.ReadFormAsync();
         
         // Check if another location with the same name exists for this company
-    var newName = form["name"].ToString();
+        var newName = form["name"].ToString();
         var existingLocation = await db.Locations
             .AnyAsync(l => l.CompanyId == location.CompanyId && l.Name == newName && l.Id != id);
         if (existingLocation)
         {
             return Results.Conflict(new { Error = "Another location with this name already exists for this company. Please choose a different name." });
         }
+        
         // Safe parsing of coordinates
         var latRawUpd = form["latitude"].ToString();
         var lngRawUpd = form["longitude"].ToString();
@@ -2155,6 +2156,7 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
             return Results.Problem($"Invalid longitude: {lngRawUpd}", statusCode: 400);
         }
 
+        // Update basic location info
         location.Name = SanitizeInput(newName);
         location.Address = SanitizeInput(form["address"].ToString());
         location.Latitude = latParsedUpd;
@@ -2167,39 +2169,78 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db) =
         }
         location.UpdatedAt = DateTime.UtcNow;
 
+        // Ensure directory structure exists for this location
+        await fileStorage.EnsureLocationDirectoryAsync(location.Id);
+
+        // Handle photo upload with new file storage system
         var photoFile = form.Files.GetFile("photo");
         if (photoFile != null && photoFile.Length > 0)
         {
-            using var ms = new MemoryStream();
-            await photoFile.OpenReadStream().CopyToAsync(ms);
-            location.Photo = ms.ToArray();
-        }
-        else if (form.ContainsKey("photo") && !string.IsNullOrEmpty(form["photo"]))
-        {
-            // Handle base64 photo data
-            var photoString = form["photo"].ToString();
-            if (photoString.StartsWith("data:image"))
+            try
             {
-                var base64Data = photoString.Substring(photoString.IndexOf(',') + 1);
-                location.Photo = Convert.FromBase64String(base64Data);
+                // Delete old photo if it exists
+                if (!string.IsNullOrEmpty(location.PhotoPath))
+                {
+                    await fileStorage.DeleteFileAsync(location.PhotoPath);
+                }
+
+                // Save new photo
+                var photoPath = await fileStorage.SaveFileAsync(photoFile, location.Id, "photos");
+                location.PhotoPath = photoPath;
+                
+                Log.Information("Updated photo for location {LocationId}: {PhotoPath}", location.Id, photoPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to update photo for location {LocationId}", location.Id);
+                // Continue without photo update rather than failing the entire operation
             }
         }
 
+        // Handle menu upload with new file storage system
         var menuFile = form.Files.GetFile("menu");
         if (menuFile != null && menuFile.Length > 0)
         {
-            location.MenuName = menuFile.FileName;
-            using var ms = new MemoryStream();
-            await menuFile.OpenReadStream().CopyToAsync(ms);
-            location.MenuData = ms.ToArray();
-            location.HasMenu = true;
+            try
+            {
+                // Delete old menu if it exists
+                if (!string.IsNullOrEmpty(location.MenuPath))
+                {
+                    await fileStorage.DeleteFileAsync(location.MenuPath);
+                }
+
+                // Save new menu
+                var menuPath = await fileStorage.SaveFileAsync(menuFile, location.Id, "menus");
+                location.MenuPath = menuPath;
+                location.MenuName = menuFile.FileName;
+                location.HasMenu = true;
+                
+                Log.Information("Updated menu for location {LocationId}: {MenuPath}", location.Id, menuPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to update menu for location {LocationId}", location.Id);
+                // Continue without menu update rather than failing the entire operation
+            }
         }
 
         await db.SaveChangesAsync();
-        return Results.NoContent();
+        
+        // Return updated location info
+        var response = new
+        {
+            location.Id,
+            location.Name,
+            PhotoUrl = !string.IsNullOrEmpty(location.PhotoPath) ? fileStorage.GetFileUrl(location.PhotoPath) : string.Empty,
+            MenuUrl = !string.IsNullOrEmpty(location.MenuPath) ? fileStorage.GetFileUrl(location.MenuPath) : string.Empty,
+            message = "Location updated successfully"
+        };
+        
+        return Results.Ok(response);
     }
     catch (Exception ex)
     {
+        Log.Error(ex, "Error updating location {LocationId}", id);
         return Results.Problem($"Error updating location: {ex.Message}");
     }
 });
