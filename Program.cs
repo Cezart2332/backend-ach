@@ -432,6 +432,119 @@ app.MapGet("/test/list-files/{locationId}", (int locationId) =>
     }
 }).WithTags("Test");
 
+// Test endpoint to diagnose file storage issues
+app.MapPost("/test/file-storage-diagnostic", async (HttpRequest request, IFileStorageService fileStorage) =>
+{
+    try
+    {
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        
+        var diagnostics = new List<object>();
+        
+        // Test 1: Check base directory permissions
+        diagnostics.Add(new { 
+            test = "Base Directory Check",
+            path = fileStorageBasePath,
+            exists = Directory.Exists(fileStorageBasePath),
+            canRead = TryReadDirectory(fileStorageBasePath),
+            canWrite = TryWriteToDirectory(fileStorageBasePath)
+        });
+        
+        // Test 2: Check directory creation
+        var testPath = Path.Combine(fileStorageBasePath, "test_location", "photos");
+        try
+        {
+            Directory.CreateDirectory(testPath);
+            var directoryCreated = Directory.Exists(testPath);
+            
+            // Clean up test directory
+            if (directoryCreated)
+            {
+                Directory.Delete(Path.Combine(fileStorageBasePath, "test_location"), true);
+            }
+            
+            diagnostics.Add(new {
+                test = "Directory Creation",
+                path = testPath,
+                success = directoryCreated
+            });
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(new {
+                test = "Directory Creation",
+                path = testPath,
+                error = ex.Message
+            });
+        }
+        
+        // Test 3: Check file creation
+        var testFilePath = Path.Combine(fileStorageBasePath, "test_file.txt");
+        try
+        {
+            await File.WriteAllTextAsync(testFilePath, "test content");
+            var fileCreated = File.Exists(testFilePath);
+            
+            // Clean up test file
+            if (fileCreated)
+            {
+                File.Delete(testFilePath);
+            }
+            
+            diagnostics.Add(new {
+                test = "File Creation",
+                path = testFilePath,
+                success = fileCreated
+            });
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(new {
+                test = "File Creation",
+                path = testFilePath,
+                error = ex.Message
+            });
+        }
+        
+        return Results.Ok(new { 
+            baseStoragePath = fileStorageBasePath,
+            diagnostics = diagnostics
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"File storage diagnostic failed: {ex.Message}");
+    }
+    
+    static bool TryReadDirectory(string path)
+    {
+        try
+        {
+            Directory.GetFiles(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    static bool TryWriteToDirectory(string path)
+    {
+        try
+        {
+            var testFile = Path.Combine(path, "write_test.tmp");
+            File.WriteAllText(testFile, "test");
+            File.Delete(testFile);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}).WithTags("Test");
+
 // Test endpoint to debug location query issues
 app.MapGet("/test/simple-locations", async (AppDbContext db) =>
 {
@@ -2174,13 +2287,20 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db, I
 
         // Handle photo upload with new file storage system
         var photoFile = form.Files.GetFile("photo");
+        Log.Information("Photo upload attempt for location {LocationId}: HasFile={HasFile}, FileSize={FileSize}", 
+            location.Id, photoFile != null, photoFile?.Length ?? 0);
+            
         if (photoFile != null && photoFile.Length > 0)
         {
             try
             {
+                Log.Information("Processing photo upload for location {LocationId}, filename: {FileName}", 
+                    location.Id, photoFile.FileName);
+                    
                 // Delete old photo if it exists
                 if (!string.IsNullOrEmpty(location.PhotoPath))
                 {
+                    Log.Information("Deleting old photo: {OldPhotoPath}", location.PhotoPath);
                     await fileStorage.DeleteFileAsync(location.PhotoPath);
                 }
 
@@ -2195,6 +2315,10 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db, I
                 Log.Error(ex, "Failed to update photo for location {LocationId}", location.Id);
                 // Continue without photo update rather than failing the entire operation
             }
+        }
+        else
+        {
+            Log.Information("No photo file received for location {LocationId} update", location.Id);
         }
 
         // Handle menu upload with new file storage system

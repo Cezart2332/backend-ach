@@ -81,14 +81,33 @@ namespace WebApplication1.Services
                 var directory = Path.GetDirectoryName(fullPath);
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {
+                    _logger.LogInformation("Creating directory: {Directory}", directory);
                     Directory.CreateDirectory(directory);
+                    
+                    // Verify directory was created
+                    if (!Directory.Exists(directory))
+                    {
+                        throw new InvalidOperationException($"Failed to create directory: {directory}");
+                    }
                 }
+
+                _logger.LogInformation("Saving file to: {FullPath}", fullPath);
 
                 // Save file
                 using (var fileStream = new FileStream(fullPath, FileMode.Create))
                 {
                     await file.CopyToAsync(fileStream);
+                    await fileStream.FlushAsync(); // Ensure data is written to disk
                 }
+
+                // Verify file was actually created
+                if (!File.Exists(fullPath))
+                {
+                    throw new InvalidOperationException($"File was not created: {fullPath}");
+                }
+
+                var fileInfo = new FileInfo(fullPath);
+                _logger.LogInformation("File created successfully: {FullPath}, Size: {Size} bytes", fullPath, fileInfo.Length);
 
                 // Return relative path for database storage
                 var dbPath = relativePath.Replace('\\', '/'); // Normalize path separators
