@@ -103,6 +103,12 @@ namespace WebApplication1.Services
             storedToken.RevokedByIp = ipAddress;
 
             // Generate new tokens
+            if (storedToken.User == null)
+            {
+                _logger.LogError("User not found for refresh token");
+                return null;
+            }
+            
             var authResponse = await GenerateTokensAsync(storedToken.User);
             
             // Mark the old token as replaced

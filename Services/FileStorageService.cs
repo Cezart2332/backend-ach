@@ -30,7 +30,7 @@ namespace WebApplication1.Services
             _baseUrl = _configuration["FileStorage:BaseUrl"] ?? "https://api.acoomh.ro/files";
         }
 
-        public async Task<bool> EnsureLocationDirectoryAsync(int locationId)
+        public Task<bool> EnsureLocationDirectoryAsync(int locationId)
         {
             try
             {
@@ -50,12 +50,12 @@ namespace WebApplication1.Services
                     _logger.LogInformation("Created menus directory for location {LocationId}: {Path}", locationId, menusPath);
                 }
 
-                return true;
+                return Task.FromResult(true);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to create directory structure for location {LocationId}", locationId);
-                return false;
+                return Task.FromResult(false);
             }
         }
 
@@ -79,7 +79,7 @@ namespace WebApplication1.Services
 
                 // Ensure directory exists for the specific file
                 var directory = Path.GetDirectoryName(fullPath);
-                if (!Directory.Exists(directory))
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {
                     Directory.CreateDirectory(directory);
                 }
@@ -117,7 +117,7 @@ namespace WebApplication1.Services
 
                 // Ensure directory exists for the specific file
                 var directory = Path.GetDirectoryName(fullPath);
-                if (!Directory.Exists(directory))
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {
                     Directory.CreateDirectory(directory);
                 }
@@ -138,12 +138,12 @@ namespace WebApplication1.Services
             }
         }
 
-        public async Task<bool> DeleteFileAsync(string filePath)
+        public Task<bool> DeleteFileAsync(string filePath)
         {
             try
             {
                 if (string.IsNullOrEmpty(filePath))
-                    return true;
+                    return Task.FromResult(true);
 
                 var fullPath = Path.Combine(_baseStoragePath, filePath.Replace('/', Path.DirectorySeparatorChar));
                 
@@ -151,39 +151,39 @@ namespace WebApplication1.Services
                 {
                     File.Delete(fullPath);
                     _logger.LogInformation("File deleted: {FilePath}", filePath);
-                    return true;
+                    return Task.FromResult(true);
                 }
 
                 _logger.LogWarning("File not found for deletion: {FilePath}", filePath);
-                return true; // Consider missing file as successfully "deleted"
+                return Task.FromResult(true); // Consider missing file as successfully "deleted"
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete file: {FilePath}", filePath);
-                return false;
+                return Task.FromResult(false);
             }
         }
 
-        public async Task<FileInfo?> GetFileInfoAsync(string filePath)
+        public Task<FileInfo?> GetFileInfoAsync(string filePath)
         {
             try
             {
                 if (string.IsNullOrEmpty(filePath))
-                    return null;
+                    return Task.FromResult<FileInfo?>(null);
 
                 var fullPath = Path.Combine(_baseStoragePath, filePath.Replace('/', Path.DirectorySeparatorChar));
                 
                 if (File.Exists(fullPath))
                 {
-                    return new FileInfo(fullPath);
+                    return Task.FromResult<FileInfo?>(new FileInfo(fullPath));
                 }
 
-                return null;
+                return Task.FromResult<FileInfo?>(null);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get file info: {FilePath}", filePath);
-                return null;
+                return Task.FromResult<FileInfo?>(null);
             }
         }
 
@@ -218,7 +218,7 @@ namespace WebApplication1.Services
             return $"{_baseUrl}/{filePath}";
         }
 
-        public async Task<bool> DeleteLocationDirectoryAsync(int locationId)
+        public Task<bool> DeleteLocationDirectoryAsync(int locationId)
         {
             try
             {
@@ -230,12 +230,12 @@ namespace WebApplication1.Services
                     _logger.LogInformation("Deleted directory for location {LocationId}: {Path}", locationId, locationPath);
                 }
 
-                return true;
+                return Task.FromResult(true);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete directory for location {LocationId}", locationId);
-                return false;
+                return Task.FromResult(false);
             }
         }
 

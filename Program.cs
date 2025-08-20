@@ -1024,18 +1024,13 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             );
         }
 
-        // Get count and data in parallel
-        var countTask = query.CountAsync();
-        var dataTask = query
+        // Get count and data sequentially to avoid DbContext threading issues
+        var totalCount = await query.CountAsync();
+        var rawLocations = await query
             .OrderBy(l => l.Name)
             .Skip(skip)
             .Take(limitNum)
             .ToListAsync();
-
-        await Task.WhenAll(countTask, dataTask);
-        
-        var totalCount = await countTask;
-        var rawLocations = await dataTask;
 
         // Process results efficiently with new file storage - with null safety
         var locations = rawLocations.Select(l => {
@@ -1345,7 +1340,7 @@ app.MapPut("changepfp", async (HttpRequest req, AppDbContext db) =>
     // Additional MIME type validation by reading file header
     using var stream = file.OpenReadStream();
     var buffer = new byte[8];
-    await stream.ReadAsync(buffer, 0, 8);
+    await stream.ReadExactlyAsync(buffer, 0, 8);
     stream.Position = 0;
 
     var isValidImage = IsValidImageFile(buffer, file.ContentType ?? "application/octet-stream");
