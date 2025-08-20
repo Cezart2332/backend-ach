@@ -911,10 +911,8 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
-        Likes = 0,
         Photo = loadPhotos && e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty,
         HasPhoto = e.Photo != null && e.Photo.Length > 0, // Photo availability indicator
-        Company = string.Empty,
         CompanyId = e.CompanyId,
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
@@ -994,8 +992,10 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         var limitNum = Math.Min(limit ?? 50, 100); // Increased limit since we're not loading binary data
         var skip = (pageNum - 1) * limitNum;
 
-        // Cache key
-        var cacheKey = $"locations_v2_p{pageNum}_l{limitNum}_c{category}_s{search}_ph{loadPhotos}";
+        // Cache key - sanitize to avoid special characters
+        var categoryKey = category?.Replace(" ", "_") ?? "all";
+        var searchKey = search?.Replace(" ", "_").Replace(",", "").Replace("'", "").Replace("\"", "") ?? "none";
+        var cacheKey = $"locations_v2_p{pageNum}_l{limitNum}_c{categoryKey}_s{searchKey}_ph{loadPhotos}";
         
         // Check cache for non-photo requests
         if (!loadPhotos && cache.TryGetValue(cacheKey, out var cachedResult))
@@ -1008,19 +1008,19 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             .Where(l => l.IsActive)
             .AsNoTracking();
 
-        // Apply filters
+        // Apply filters with null safety
         if (!string.IsNullOrEmpty(category))
         {
-            query = query.Where(l => l.Category.ToLower() == category.ToLower());
+            query = query.Where(l => l.Category != null && l.Category.ToLower() == category.ToLower());
         }
 
         if (!string.IsNullOrEmpty(search))
         {
             var searchLower = search.ToLower();
             query = query.Where(l => 
-                l.Name.ToLower().Contains(searchLower) ||
-                l.Address.ToLower().Contains(searchLower) ||
-                l.Tags.ToLower().Contains(searchLower)
+                (l.Name != null && l.Name.ToLower().Contains(searchLower)) ||
+                (l.Address != null && l.Address.ToLower().Contains(searchLower)) ||
+                (l.Tags != null && l.Tags.ToLower().Contains(searchLower))
             );
         }
 
@@ -1037,32 +1037,46 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
         var totalCount = await countTask;
         var rawLocations = await dataTask;
 
-        // Process results efficiently with new file storage
-        var locations = rawLocations.Select(l => new {
-            l.Id,
-            l.Name,
-            l.Address,
-            l.Category,
-            l.PhoneNumber,
-            l.Latitude,
-            l.Longitude,
-            Description = l.Description ?? string.Empty,
-            Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
-            
-            // New file storage approach
-            PhotoUrl = !string.IsNullOrEmpty(l.PhotoPath) ? fileStorage.GetFileUrl(l.PhotoPath) : string.Empty,
-            MenuUrl = !string.IsNullOrEmpty(l.MenuPath) ? fileStorage.GetFileUrl(l.MenuPath) : string.Empty,
-            HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
-            HasMenu = !string.IsNullOrEmpty(l.MenuPath),
-            
-            // Legacy fields for backward compatibility (return empty to avoid loading binary data)
-            Photo = loadPhotos && !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
-            MenuPath = l.MenuPath ?? string.Empty,
-            
-            l.CreatedAt,
-            l.UpdatedAt,
-            CompanyId = l.CompanyId
-        }).ToList();
+        // Process results efficiently with new file storage - with null safety
+        var locations = rawLocations.Select(l => {
+            try 
+            {
+                return new {
+                    l.Id,
+                    Name = l.Name ?? string.Empty,
+                    Address = l.Address ?? string.Empty,
+                    Category = l.Category ?? string.Empty,
+                    PhoneNumber = l.PhoneNumber ?? string.Empty,
+                    l.Latitude,
+                    l.Longitude,
+                    Description = l.Description ?? string.Empty,
+                    Tags = string.IsNullOrEmpty(l.Tags) ? new string[0] : l.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries),
+                    
+                    // New file storage approach with null safety
+                    PhotoUrl = !string.IsNullOrEmpty(l.PhotoPath) 
+                        ? fileStorage.GetFileUrl(l.PhotoPath) ?? string.Empty 
+                        : string.Empty,
+                    MenuUrl = !string.IsNullOrEmpty(l.MenuPath) 
+                        ? fileStorage.GetFileUrl(l.MenuPath) ?? string.Empty 
+                        : string.Empty,
+                    HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
+                    HasMenu = !string.IsNullOrEmpty(l.MenuPath),
+                    
+                    // Legacy fields for backward compatibility
+                    Photo = loadPhotos && !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
+                    MenuPath = l.MenuPath ?? string.Empty,
+                    
+                    l.CreatedAt,
+                    l.UpdatedAt,
+                    CompanyId = l.CompanyId
+                };
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Error processing location {LocationId}, skipping", l.Id);
+                return null;
+            }
+        }).Where(l => l != null).ToList();
 
         var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
         
@@ -1086,13 +1100,21 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
             }
         };
         
-        // Cache responses
-        var cacheOptions = new MemoryCacheEntryOptions
+        // Cache responses with error handling
+        try
         {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-            Priority = CacheItemPriority.Normal
-        };
-        cache.Set(cacheKey, result, cacheOptions);
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                Priority = CacheItemPriority.Normal
+            };
+            cache.Set(cacheKey, result, cacheOptions);
+        }
+        catch (Exception cacheEx)
+        {
+            Log.Warning(cacheEx, "Failed to cache locations result");
+            // Continue without caching
+        }
             
         return Results.Ok(result);
     }
@@ -1326,7 +1348,7 @@ app.MapPut("changepfp", async (HttpRequest req, AppDbContext db) =>
     await stream.ReadAsync(buffer, 0, 8);
     stream.Position = 0;
 
-    var isValidImage = IsValidImageFile(buffer, file.ContentType);
+    var isValidImage = IsValidImageFile(buffer, file.ContentType ?? "application/octet-stream");
     if (!isValidImage)
     {
         return Results.BadRequest("Invalid image file");
@@ -1406,9 +1428,7 @@ app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(",").Select(t => t.Trim()).ToList(),
-        Likes = 0, // Temporarily disabled to avoid N+1 query issues
         Photo = e.Photo != null ? Convert.ToBase64String(e.Photo) : string.Empty,
-        Company = string.Empty, // Company name removed to avoid join issues
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
         EndTime = e.EndTime.ToString(@"hh\:mm"),
@@ -1836,7 +1856,7 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         PhotoUrl = !string.IsNullOrEmpty(l.PhotoPath) ? fileStorage.GetFileUrl(l.PhotoPath) : string.Empty,
         MenuUrl = !string.IsNullOrEmpty(l.MenuPath) ? fileStorage.GetFileUrl(l.MenuPath) : string.Empty,
         HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
-        HasMenu = !string.IsNullOrEmpty(l.MenuPath) || l.HasMenu,
+        HasMenu = !string.IsNullOrEmpty(l.MenuPath),
         
         // Legacy support for backward compatibility
         Photo = !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
@@ -1875,7 +1895,7 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db, IFileStorageServic
         PhotoUrl = !string.IsNullOrEmpty(location.PhotoPath) ? fileStorage.GetFileUrl(location.PhotoPath) : string.Empty,
         MenuUrl = !string.IsNullOrEmpty(location.MenuPath) ? fileStorage.GetFileUrl(location.MenuPath) : string.Empty,
         HasPhoto = !string.IsNullOrEmpty(location.PhotoPath),
-        HasMenu = !string.IsNullOrEmpty(location.MenuPath) || location.HasMenu,
+        HasMenu = !string.IsNullOrEmpty(location.MenuPath),
         
         // Legacy support (return URLs instead of binary data)
         Photo = !string.IsNullOrEmpty(location.PhotoPath) ? "use_photo_url" : string.Empty,
@@ -1900,10 +1920,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         }
 
         var form = await req.ReadFormAsync();
-        
-        // Debug logging for form data
-        Log.Information("Form fields received: {Fields}", string.Join(", ", form.Keys));
-        Log.Information("Form files received: {Files}", string.Join(", ", form.Files.Select(f => f.Name)));
         
         // Check if company exists
         var company = await db.Companies.FindAsync(companyId);
@@ -1963,17 +1979,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             Longitude = lngParsed,
             Tags = SanitizeInput(form["tags"].ToString()) ?? string.Empty,
             Description = string.IsNullOrWhiteSpace(descriptionRaw) ? null : SanitizeInput(descriptionRaw),
-            
-            // New file path fields
-            PhotoPath = null,
-            MenuPath = null,
-            
-            // Legacy fields (for backward compatibility during migration)
-            Photo = Array.Empty<byte>(),
-            MenuName = string.Empty,
-            MenuData = Array.Empty<byte>(),
-            HasMenu = false,
-            
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             IsActive = true
@@ -1990,20 +1995,15 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         var menuFile = form.Files.GetFile("menu");
 
         // Debug logging for file uploads
-        Log.Information("Photo file received: {HasPhoto}, Size: {PhotoSize}", 
-            photoFile != null, photoFile?.Length ?? 0);
-        Log.Information("Menu file received: {HasMenu}, Size: {MenuSize}", 
-            menuFile != null, menuFile?.Length ?? 0);
+
 
         // Handle photo upload to file storage
         if (photoFile != null && photoFile.Length > 0)
         {
             try
             {
-                Log.Information("Processing photo upload for location {LocationId}", location.Id);
                 var photoPath = await fileStorage.SaveFileAsync(photoFile, location.Id, "photos");
                 location.PhotoPath = photoPath;
-                Log.Information("Photo saved for location {LocationId}: {PhotoPath}", location.Id, photoPath);
             }
             catch (Exception ex)
             {
@@ -2013,7 +2013,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         }
         else
         {
-            Log.Information("No photo file received or file is empty for location {LocationId}", location.Id);
         }
 
         // Handle menu upload to file storage
@@ -2025,7 +2024,6 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
                 location.MenuPath = menuPath;
                 location.MenuName = menuFile.FileName;
                 location.HasMenu = true;
-                Log.Information("Menu saved for location {LocationId}: {MenuPath}", location.Id, menuPath);
             }
             catch (Exception ex)
             {
@@ -2034,13 +2032,8 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             }
         }
 
-        // Update location with file paths
-        location.UpdatedAt = DateTime.UtcNow;
+        // Save changes with file paths
         await db.SaveChangesAsync();
-
-        // Debug logging
-        Log.Information("Created location with: Name='{Name}', Address='{Address}', Category='{Category}', Tags='{Tags}', Description='{Description}', PhotoPath='{PhotoPath}', MenuPath='{MenuPath}'", 
-            location.Name, location.Address, location.Category, location.Tags, location.Description, location.PhotoPath, location.MenuPath);
 
         var response = new
         {
