@@ -7,12 +7,16 @@ namespace WebApplication1.Services
     {
         Task<string> SaveFileAsync(IFormFile file, int locationId, string fileType);
         Task<string> SaveFileAsync(byte[] fileData, string fileName, int locationId, string fileType);
+        Task<string> SaveEventFileAsync(IFormFile file, int eventId, string fileType);
+        Task<string> SaveEventFileAsync(byte[] fileData, string fileName, int eventId, string fileType);
         Task<bool> DeleteFileAsync(string filePath);
         Task<FileInfo?> GetFileInfoAsync(string filePath);
         Task<byte[]?> GetFileAsync(string filePath);
         string GetFileUrl(string filePath);
         Task<bool> EnsureLocationDirectoryAsync(int locationId);
+        Task<bool> EnsureEventDirectoryAsync(int eventId);
         Task<bool> DeleteLocationDirectoryAsync(int locationId);
+        Task<bool> DeleteEventDirectoryAsync(int eventId);
     }
 
     public class FileStorageService : IFileStorageService
@@ -300,6 +304,145 @@ namespace WebApplication1.Services
             }
 
             return result.ToString();
+        }
+
+        // Event-specific file storage methods
+        public Task<bool> EnsureEventDirectoryAsync(int eventId)
+        {
+            try
+            {
+                var eventPath = Path.Combine(_baseStoragePath, "events", eventId.ToString());
+                var photosPath = Path.Combine(eventPath, "photos");
+
+                if (!Directory.Exists(photosPath))
+                {
+                    Directory.CreateDirectory(photosPath);
+                    _logger.LogInformation("Created photos directory for event {EventId}: {Path}", eventId, photosPath);
+                }
+
+                return Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure directory for event {EventId}", eventId);
+                return Task.FromResult(false);
+            }
+        }
+
+        public Task<bool> DeleteEventDirectoryAsync(int eventId)
+        {
+            try
+            {
+                var eventPath = Path.Combine(_baseStoragePath, "events", eventId.ToString());
+                if (Directory.Exists(eventPath))
+                {
+                    Directory.Delete(eventPath, true);
+                    _logger.LogInformation("Deleted directory for event {EventId}: {Path}", eventId, eventPath);
+                }
+                return Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete directory for event {EventId}", eventId);
+                return Task.FromResult(false);
+            }
+        }
+
+        public async Task<string> SaveEventFileAsync(IFormFile file, int eventId, string fileType)
+        {
+            try
+            {
+                // Ensure directory exists
+                await EnsureEventDirectoryAsync(eventId);
+
+                if (!IsValidFileType(file, fileType))
+                {
+                    throw new ArgumentException($"Invalid file type for {fileType}");
+                }
+
+                // Generate secure filename
+                var fileName = GenerateSecureFileName(file.FileName, fileType);
+                var relativePath = Path.Combine("events", eventId.ToString(), fileType, fileName);
+                var fullPath = Path.Combine(_baseStoragePath, relativePath);
+
+                // Ensure directory exists for the specific file
+                var directory = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    _logger.LogInformation("Creating directory: {Directory}", directory);
+                    Directory.CreateDirectory(directory);
+                    
+                    // Verify directory was created
+                    if (!Directory.Exists(directory))
+                    {
+                        throw new InvalidOperationException($"Failed to create directory: {directory}");
+                    }
+                }
+
+                _logger.LogInformation("Saving file to: {FullPath}", fullPath);
+
+                // Save file
+                using (var fileStream = new FileStream(fullPath, FileMode.Create))
+                {
+                    await file.CopyToAsync(fileStream);
+                    await fileStream.FlushAsync(); // Ensure data is written to disk
+                }
+
+                // Verify file was actually created
+                if (!File.Exists(fullPath))
+                {
+                    throw new InvalidOperationException($"File was not created: {fullPath}");
+                }
+
+                var fileInfo = new FileInfo(fullPath);
+                _logger.LogInformation("File created successfully: {FullPath}, Size: {Size} bytes", fullPath, fileInfo.Length);
+
+                // Return relative path for database storage
+                var dbPath = relativePath.Replace('\\', '/'); // Normalize path separators
+                _logger.LogInformation("File saved successfully: {FileName} -> {Path}", file.FileName, dbPath);
+                
+                return dbPath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save file {FileName} for event {EventId}", file.FileName, eventId);
+                throw;
+            }
+        }
+
+        public async Task<string> SaveEventFileAsync(byte[] fileData, string fileName, int eventId, string fileType)
+        {
+            try
+            {
+                // Ensure directory exists
+                await EnsureEventDirectoryAsync(eventId);
+
+                // Generate secure filename
+                var secureFileName = GenerateSecureFileName(fileName, fileType);
+                var relativePath = Path.Combine("events", eventId.ToString(), fileType, secureFileName);
+                var fullPath = Path.Combine(_baseStoragePath, relativePath);
+
+                // Ensure directory exists for the specific file
+                var directory = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                // Save file
+                await File.WriteAllBytesAsync(fullPath, fileData);
+
+                // Return relative path for database storage
+                var dbPath = relativePath.Replace('\\', '/'); // Normalize path separators
+                _logger.LogInformation("File saved successfully: {FileName} -> {Path}", fileName, dbPath);
+                
+                return dbPath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save file {FileName} for event {EventId}", fileName, eventId);
+                throw;
+            }
         }
     }
 }

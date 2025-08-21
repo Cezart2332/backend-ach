@@ -3,7 +3,8 @@
 public class EventResponse
 {
     public int Id { get; set; }
-    public string Photo { get; set; } = string.Empty;
+    public string Photo { get; set; } = string.Empty; // Will contain file URL or base64 for backward compatibility
+    public string? PhotoPath { get; set; } // File path for new system
     public bool HasPhoto { get; set; } = false;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

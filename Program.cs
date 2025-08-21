@@ -557,6 +557,44 @@ app.MapGet("/test/simple-locations", async (AppDbContext db) =>
     }
 }).WithTags("Test");
 
+// Test endpoint for event file storage diagnostics
+app.MapGet("/test/event-file-storage-diagnostic/{eventId}", async (int eventId, IFileStorageService fileStorage) =>
+{
+    try
+    {
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var eventPath = Path.Combine(fileStorageBasePath, "events", eventId.ToString());
+        var photosPath = Path.Combine(eventPath, "photos");
+
+        return Results.Ok(new
+        {
+            eventId = eventId,
+            baseStoragePath = fileStorageBasePath,
+            eventDirectoryPath = eventPath,
+            photosDirectoryPath = photosPath,
+            tests = new
+            {
+                eventDirectoryExists = Directory.Exists(eventPath),
+                photosDirectoryExists = Directory.Exists(photosPath),
+                canCreateEventDirectory = await fileStorage.EnsureEventDirectoryAsync(eventId),
+                files = Directory.Exists(photosPath) ? 
+                    Directory.GetFiles(photosPath).Select(f => new
+                    {
+                        fileName = Path.GetFileName(f),
+                        fullPath = f,
+                        size = new FileInfo(f).Length,
+                        relativePath = Path.GetRelativePath(fileStorageBasePath, f).Replace('\\', '/'),
+                        url = $"/files/{Path.GetRelativePath(fileStorageBasePath, f).Replace('\\', '/')}"
+                    }).ToArray() : Array.Empty<object>()
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Event file storage diagnostic failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
 // Test endpoint to debug which field causes the issue
 app.MapGet("/test/location-fields", async (AppDbContext db) =>
 {
@@ -1052,7 +1090,8 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             e.Title,
             e.Description,
             e.Tags,
-            Photo = loadPhotos ? e.Photo : null, // Conditional photo loading
+            Photo = loadPhotos ? e.Photo : null, // Legacy field for backward compatibility
+            PhotoPath = e.PhotoPath, // New file path field
             e.CompanyId,
             e.EventDate,
             e.StartTime,
@@ -1074,8 +1113,10 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
-        Photo = loadPhotos && e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty,
-        HasPhoto = e.Photo != null && e.Photo.Length > 0, // Photo availability indicator
+        Photo = !string.IsNullOrEmpty(e.PhotoPath) ? $"/files/{e.PhotoPath}" : 
+                (loadPhotos && e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty),
+        PhotoPath = e.PhotoPath,
+        HasPhoto = !string.IsNullOrEmpty(e.PhotoPath) || (e.Photo != null && e.Photo.Length > 0),
         CompanyId = e.CompanyId,
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
@@ -1782,63 +1823,43 @@ app.MapGet("/events/{id}/like-status/{userId}", async (int id, int userId, AppDb
 });
 
 // POST /events - Create new event
-app.MapPost("/events", async (HttpContext context, AppDbContext db) =>
+app.MapPost("/events", async (HttpContext context, AppDbContext db, FileStorageService fileStorage) =>
 {
     try
     {
+        Log.Information("Creating new event - starting process");
+        
         // Get company ID from the authenticated user
         var companyIdClaim = context.User.FindFirst("sub")?.Value;
         if (string.IsNullOrEmpty(companyIdClaim) || !int.TryParse(companyIdClaim, out var companyId))
         {
+            Log.Warning("Unauthorized event creation attempt - no valid company ID");
             return Results.Unauthorized();
         }
 
         var company = await db.Companies.FindAsync(companyId);
         if (company == null)
         {
+            Log.Warning("Event creation failed - company not found: {CompanyId}", companyId);
             return Results.BadRequest("Company not found");
         }
 
         var form = await context.Request.ReadFormAsync();
+        Log.Information("Event form data received. Files count: {FileCount}", form.Files.Count);
 
-        // Handle image upload
-        byte[] imageData = Array.Empty<byte>();
-        if (form.Files.Count > 0)
-        {
-            // Handle file upload
-            var file = form.Files[0];
-            using var memoryStream = new MemoryStream();
-            await file.CopyToAsync(memoryStream);
-            imageData = memoryStream.ToArray();
-        }
-        else if (form.ContainsKey("photo") && !string.IsNullOrEmpty(form["photo"]))
-        {
-            // Handle base64 photo data
-            try
-            {
-                var photoString = form["photo"].ToString();
-                if (!string.IsNullOrEmpty(photoString))
-                {
-                    imageData = Convert.FromBase64String(photoString);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error converting base64 photo: {ex.Message}");
-            }
-        }
-
+        // Create the event first to get an ID
         var newEvent = new Event
         {
             Title = form["title"].ToString(),
             Description = form["description"].ToString(),
             Tags = form["tags"].ToString() ?? "",
             CompanyId = companyId,
-            Photo = imageData,
+            Photo = Array.Empty<byte>(), // Keep empty for new file system
+            PhotoPath = null, // Will be set after file upload
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             
-            // New enhanced event fields
+            // Enhanced event fields
             EventDate = DateTime.Parse(form["eventDate"].ToString()),
             StartTime = TimeSpan.Parse(form["startTime"].ToString()),
             EndTime = TimeSpan.Parse(form["endTime"].ToString()),
@@ -1852,83 +1873,194 @@ app.MapPost("/events", async (HttpContext context, AppDbContext db) =>
         };
 
         db.Events.Add(newEvent);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(); // Save to get the ID
 
-        return Results.Ok(new { id = newEvent.Id, message = "Event created successfully" });
-    }
-    catch (Exception ex)
-    {
-        return Results.BadRequest($"Error creating event: {ex.Message}");
-    }
-}).RequireAuthorization();
+        Log.Information("Event created with ID: {EventId}", newEvent.Id);
 
-// PUT /events/{id} - Update event
-app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db) =>
-{
-    try
-    {
-        var eventItem = await db.Events.FindAsync(id);
-        if (eventItem == null)
-        {
-            return Results.NotFound();
-        }
-
-        var form = await request.ReadFormAsync();
-
-        eventItem.Title = form["title"].ToString();
-        eventItem.Description = form["description"].ToString();
-        eventItem.Tags = form["tags"].ToString() ?? "";
-
-        // Handle image upload if provided
+        // Handle photo upload if provided
         if (form.Files.Count > 0)
         {
-            // Handle file upload
             var file = form.Files[0];
-            using var memoryStream = new MemoryStream();
-            await file.CopyToAsync(memoryStream);
-            eventItem.Photo = memoryStream.ToArray();
+            Log.Information("Processing photo upload for event {EventId}. File: {FileName}, Size: {FileSize}", 
+                newEvent.Id, file.FileName, file.Length);
+                
+            var photoPath = await fileStorage.SaveEventFileAsync(file, newEvent.Id, "photos");
+            if (!string.IsNullOrEmpty(photoPath))
+            {
+                newEvent.PhotoPath = photoPath;
+                Log.Information("Photo saved successfully for event {EventId}: {PhotoPath}", newEvent.Id, photoPath);
+            }
+            else
+            {
+                Log.Warning("Photo upload failed for event {EventId}", newEvent.Id);
+            }
         }
         else if (form.ContainsKey("photo") && !string.IsNullOrEmpty(form["photo"]))
         {
-            // Handle base64 photo data
+            // Handle base64 photo data - convert to file
             try
             {
                 var photoString = form["photo"].ToString();
                 if (!string.IsNullOrEmpty(photoString))
                 {
-                    eventItem.Photo = Convert.FromBase64String(photoString);
+                    var imageData = Convert.FromBase64String(photoString);
+                    var photoPath = await fileStorage.SaveEventFileAsync(imageData, "photo.jpg", newEvent.Id, "photos");
+                    if (!string.IsNullOrEmpty(photoPath))
+                    {
+                        newEvent.PhotoPath = photoPath;
+                        Log.Information("Base64 photo converted and saved for event {EventId}: {PhotoPath}", newEvent.Id, photoPath);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error converting base64 photo in update: {ex.Message}");
+                Log.Error(ex, "Error converting base64 photo for event {EventId}", newEvent.Id);
             }
+        }
+        else
+        {
+            Log.Information("No photo uploaded for event {EventId}", newEvent.Id);
+        }
+
+        // Save again with photo path
+        await db.SaveChangesAsync();
+
+        Log.Information("Event creation completed successfully: {EventId}", newEvent.Id);
+        return Results.Ok(new { id = newEvent.Id, message = "Event created successfully" });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error creating event");
+        return Results.BadRequest($"Error creating event: {ex.Message}");
+    }
+}).RequireAuthorization();
+
+// PUT /events/{id} - Update event
+app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db, FileStorageService fileStorage) =>
+{
+    try
+    {
+        Log.Information("Updating event {EventId}", id);
+        
+        var eventItem = await db.Events.FindAsync(id);
+        if (eventItem == null)
+        {
+            Log.Warning("Event not found for update: {EventId}", id);
+            return Results.NotFound();
+        }
+
+        var form = await request.ReadFormAsync();
+        Log.Information("Event update form data received. Files count: {FileCount}", form.Files.Count);
+
+        eventItem.Title = form["title"].ToString();
+        eventItem.Description = form["description"].ToString();
+        eventItem.Tags = form["tags"].ToString() ?? "";
+
+        // Handle photo upload if provided
+        if (form.Files.Count > 0)
+        {
+            var file = form.Files[0];
+            Log.Information("Processing photo upload for event update {EventId}. File: {FileName}, Size: {FileSize}", 
+                id, file.FileName, file.Length);
+                
+            var photoPath = await fileStorage.SaveEventFileAsync(file, id, "photos");
+            if (!string.IsNullOrEmpty(photoPath))
+            {
+                // Delete old photo if it exists
+                if (!string.IsNullOrEmpty(eventItem.PhotoPath))
+                {
+                    await fileStorage.DeleteFileAsync(eventItem.PhotoPath);
+                }
+                
+                eventItem.PhotoPath = photoPath;
+                Log.Information("Photo updated successfully for event {EventId}: {PhotoPath}", id, photoPath);
+            }
+            else
+            {
+                Log.Warning("Photo upload failed for event update {EventId}", id);
+            }
+        }
+        else if (form.ContainsKey("photo") && !string.IsNullOrEmpty(form["photo"]))
+        {
+            // Handle base64 photo data - convert to file
+            try
+            {
+                var photoString = form["photo"].ToString();
+                if (!string.IsNullOrEmpty(photoString))
+                {
+                    var imageData = Convert.FromBase64String(photoString);
+                    var photoPath = await fileStorage.SaveEventFileAsync(imageData, "photo.jpg", id, "photos");
+                    if (!string.IsNullOrEmpty(photoPath))
+                    {
+                        // Delete old photo if it exists
+                        if (!string.IsNullOrEmpty(eventItem.PhotoPath))
+                        {
+                            await fileStorage.DeleteFileAsync(eventItem.PhotoPath);
+                        }
+                        
+                        eventItem.PhotoPath = photoPath;
+                        Log.Information("Base64 photo updated for event {EventId}: {PhotoPath}", id, photoPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error converting base64 photo for event update {EventId}", id);
+            }
+        }
+        else
+        {
+            Log.Information("No photo update for event {EventId}", id);
         }
 
         eventItem.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
+        Log.Information("Event update completed successfully: {EventId}", id);
         return Results.Ok(new { message = "Event updated successfully" });
     }
     catch (Exception ex)
     {
+        Log.Error(ex, "Error updating event {EventId}", id);
         return Results.BadRequest($"Error updating event: {ex.Message}");
     }
 });
 
 // DELETE /events/{id} - Delete event
-app.MapDelete("/events/{id}", async (int id, AppDbContext db) =>
+app.MapDelete("/events/{id}", async (int id, AppDbContext db, FileStorageService fileStorage) =>
 {
-    var eventItem = await db.Events.FindAsync(id);
-    if (eventItem == null)
+    try
     {
-        return Results.NotFound();
-    }
+        Log.Information("Deleting event {EventId}", id);
+        
+        var eventItem = await db.Events.FindAsync(id);
+        if (eventItem == null)
+        {
+            Log.Warning("Event not found for deletion: {EventId}", id);
+            return Results.NotFound();
+        }
 
-    db.Events.Remove(eventItem);
-    await db.SaveChangesAsync();
-    
-    return Results.Ok(new { message = "Event deleted successfully" });
+        // Delete associated files
+        if (!string.IsNullOrEmpty(eventItem.PhotoPath))
+        {
+            await fileStorage.DeleteFileAsync(eventItem.PhotoPath);
+            Log.Information("Deleted photo file for event {EventId}: {PhotoPath}", id, eventItem.PhotoPath);
+        }
+
+        // Delete event directory (will only delete if empty)
+        await fileStorage.DeleteEventDirectoryAsync(id);
+
+        db.Events.Remove(eventItem);
+        await db.SaveChangesAsync();
+        
+        Log.Information("Event deleted successfully: {EventId}", id);
+        return Results.Ok(new { message = "Event deleted successfully" });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error deleting event {EventId}", id);
+        return Results.BadRequest($"Error deleting event: {ex.Message}");
+    }
 });
 
 // GET /events/{id}/attendees - Get event attendees (placeholder)
@@ -2153,15 +2285,20 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         var menuFile = form.Files.GetFile("menu");
 
         // Debug logging for file uploads
-
+        Log.Information("Location creation upload debug - PhotoFile: {HasPhoto} (Size: {PhotoSize}), MenuFile: {HasMenu} (Size: {MenuSize}), FormFiles: [{FormFiles}]", 
+            photoFile != null, photoFile?.Length ?? 0, menuFile != null, menuFile?.Length ?? 0, 
+            string.Join(", ", form.Files.Select(f => $"{f.Name}:{f.FileName}:{f.Length}")));
 
         // Handle photo upload to file storage
         if (photoFile != null && photoFile.Length > 0)
         {
             try
             {
+                Log.Information("Processing photo upload for location {LocationId}, filename: {FileName}, contentType: {ContentType}", 
+                    location.Id, photoFile.FileName, photoFile.ContentType);
                 var photoPath = await fileStorage.SaveFileAsync(photoFile, location.Id, "photos");
                 location.PhotoPath = photoPath;
+                Log.Information("Photo saved successfully for location {LocationId}: {PhotoPath}", location.Id, photoPath);
             }
             catch (Exception ex)
             {
@@ -2171,6 +2308,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
         }
         else
         {
+            Log.Information("No photo file received for location {LocationId} creation", location.Id);
         }
 
         // Handle menu upload to file storage

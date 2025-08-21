@@ -6,7 +6,8 @@ namespace WebApplication1.Models;
 public class Event
 {
     public int Id { get; set; }
-    public byte[] Photo { get; set; } = Array.Empty<byte>();
+    public byte[] Photo { get; set; } = Array.Empty<byte>(); // Legacy field - will be removed later
+    public string? PhotoPath { get; set; } // New file path field
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Tags { get; set; } = string.Empty;
