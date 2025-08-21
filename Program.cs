@@ -1823,7 +1823,7 @@ app.MapGet("/events/{id}/like-status/{userId}", async (int id, int userId, AppDb
 });
 
 // POST /events - Create new event
-app.MapPost("/events", async (HttpContext context, AppDbContext db, FileStorageService fileStorage) =>
+app.MapPost("/events", async (HttpContext context, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {
@@ -1936,7 +1936,7 @@ app.MapPost("/events", async (HttpContext context, AppDbContext db, FileStorageS
 }).RequireAuthorization();
 
 // PUT /events/{id} - Update event
-app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db, FileStorageService fileStorage) =>
+app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {
@@ -2027,7 +2027,7 @@ app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db, 
 });
 
 // DELETE /events/{id} - Delete event
-app.MapDelete("/events/{id}", async (int id, AppDbContext db, FileStorageService fileStorage) =>
+app.MapDelete("/events/{id}", async (int id, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {

@@ -1,0 +1,4 @@
+2025-08-21 16:41:01.426 +03:00 [ERR] An error occurred using the connection to database '' on server 'localhost'.
+2025-08-21 16:41:05.549 +03:00 [ERR] An error occurred using the connection to database '' on server 'localhost'.
+2025-08-21 16:41:10.694 +03:00 [ERR] An error occurred using the connection to database '' on server 'localhost'.
+2025-08-21 16:41:17.917 +03:00 [ERR] An error occurred using the connection to database '' on server 'localhost'.
