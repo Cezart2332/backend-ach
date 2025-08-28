@@ -2197,20 +2197,36 @@ app.MapGet("/events/{id}/attendees", async (int id, AppDbContext db) =>
 });
 
 // OLD ENDPOINT - Deprecated: Company menu now handled per location
-app.MapGet("/companies/{id}/menu", async (int id, AppDbContext db) =>
+app.MapGet("/companies/{id}/menu", async (int id, AppDbContext db, IFileStorageService fileStorage) =>
 {
-    // Redirect to first active location's menu if available
+    // Find first active location for this company
     var firstLocation = await db.Locations
-        .Where(l => l.CompanyId == id && l.IsActive && l.MenuData.Length > 0)
+        .Where(l => l.CompanyId == id && l.IsActive)
         .FirstOrDefaultAsync();
-        
+
     if (firstLocation == null)
     {
         return Results.NotFound("Meniu inexistent pentru această companie");
     }
 
-    return Results.File(firstLocation.MenuData, "application/pdf", firstLocation.MenuName);
-});
+    // Prefer file-path based menus (URL) from file storage
+    if (!string.IsNullOrEmpty(firstLocation.MenuPath))
+    {
+        var menuUrl = fileStorage.GetFileUrl(firstLocation.MenuPath);
+        if (!string.IsNullOrEmpty(menuUrl))
+        {
+            return Results.Ok(new { menuUrl, menuName = firstLocation.MenuName });
+        }
+    }
+
+    // Fallback: if legacy MenuData exists, return the binary
+    if (firstLocation.MenuData != null && firstLocation.MenuData.Length > 0)
+    {
+        return Results.File(firstLocation.MenuData, "application/pdf", firstLocation.MenuName);
+    }
+
+    return Results.NotFound("Meniu inexistent pentru această companie");
+}).WithTags("Locations");
 
 // OLD ENDPOINT - Deprecated: Company menu upload now handled per location
 app.MapPost("/companies/{id}/upload-menu", (int id, HttpRequest request, AppDbContext db) =>

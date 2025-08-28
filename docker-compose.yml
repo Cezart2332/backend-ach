@@ -2,19 +2,22 @@ version: '3.8'
 
 services:
   app:
-    image: myregistry/myapp:latest # replace with your image (e.g. registry/name:tag)
+    # Replace this with your actual image (example: myregistry/your-app:tag)
+    image: myregistry/myapp:latest
     container_name: webapp
     restart: always
     ports:
       - "80:80"
     volumes:
-      # Bind-mount host folder to container path used by your FileStorageService
-      - /var/www/uploads:/var/www/uploads:rw
+      # Bind-mount host folder to container path used by your FileStorageService.
+      # If your host enforces SELinux, append :z to allow access (example shown).
+      - /var/www/uploads:/var/www/uploads:rw,z
     env_file:
       - ./deploy.env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
 
-# (Optional) named volume example for alternative approach
-#volumes:
-#  uploads-data: {}
+# Notes:
+# - Replace the image value with your registry/image:tag before deploying.
+# - The :z option on the volume is required for SELinux-enabled hosts; remove the ,z
+#   suffix on non-SELinux systems if you encounter permission issues.
