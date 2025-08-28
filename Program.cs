@@ -713,10 +713,15 @@ app.MapPost("/auth/refresh", async (RefreshTokenRequestDto request, IAuthService
     try
     {
         var ipAddress = GetClientIpAddress(context);
+        try {
+            Console.WriteLine($"[DEBUG] /auth/refresh called. refreshTokenPrefix={ (request.RefreshToken != null ? request.RefreshToken.Substring(0, Math.Min(8, request.RefreshToken.Length)) + "..." : "<null>") } ip={ipAddress}");
+        } catch {}
+
         var result = await authService.RefreshTokenAsync(request.RefreshToken, ipAddress);
         
         if (result == null)
         {
+            Console.WriteLine($"[DEBUG] /auth/refresh: RefreshTokenAsync returned null for refreshTokenPrefix={ (request.RefreshToken != null ? request.RefreshToken.Substring(0, Math.Min(8, request.RefreshToken.Length)) + "..." : "<null>") } ip={ipAddress}");
             return Results.Unauthorized();
         }
         
