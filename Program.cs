@@ -1050,8 +1050,8 @@ app.MapGet("/companies", async (AppDbContext db) =>
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /events - Optimized public events endpoint with lazy photo loading
-app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, bool? includePhotos, AppDbContext db) =>
+// GET /events - Optimized public events endpoint with URL-based photo storage
+app.MapGet("/events", async (int? page, int? limit, string? search, bool? active, bool? includePhotos, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {
@@ -1113,10 +1113,18 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
-        Photo = !string.IsNullOrEmpty(e.PhotoPath) ? $"/files/{e.PhotoPath}" : 
-                (loadPhotos && e.Photo != null && e.Photo.Length > 0 ? Convert.ToBase64String(e.Photo) : string.Empty),
+        Likes = db.Likes.Count(l => l.EventId == e.Id), // Add likes count
+        
+        // New URL-based photo storage approach
+        PhotoUrl = !string.IsNullOrEmpty(e.PhotoPath) 
+            ? fileStorage.GetFileUrl(e.PhotoPath) ?? string.Empty 
+            : string.Empty,
         PhotoPath = e.PhotoPath,
-        HasPhoto = !string.IsNullOrEmpty(e.PhotoPath) || (e.Photo != null && e.Photo.Length > 0),
+        HasPhoto = !string.IsNullOrEmpty(e.PhotoPath),
+        
+        // Legacy field for backward compatibility
+        Photo = loadPhotos && !string.IsNullOrEmpty(e.PhotoPath) ? "use_photo_url" : string.Empty,
+        
         CompanyId = e.CompanyId,
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
@@ -1142,6 +1150,12 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
             totalPages = totalPages,
             hasNext = pageNum < totalPages,
             hasPrev = pageNum > 1
+        },
+        performance = new
+        {
+            photosAsUrls = true,
+            batchSize = limitNum,
+            tip = "Event photos are now served as URLs for better performance"
         }
     });
     }
@@ -1158,23 +1172,44 @@ app.MapGet("/events", async (int? page, int? limit, string? search, bool? active
   .RequireRateLimiting("GeneralPolicy")
   .WithOpenApi();
 
-// GET /events/{id}/photo - Get event photo separately for lazy loading
-app.MapGet("/events/{id}/photo", async (int id, AppDbContext db) =>
+// GET /events/{id}/photo - DEPRECATED: Use PhotoUrl from main endpoints instead
+app.MapGet("/events/{id}/photo", async (int id, AppDbContext db, IFileStorageService fileStorage) =>
 {
     try
     {
         var eventEntity = await db.Events
             .Where(e => e.Id == id && e.IsActive)
-            .Select(e => new { e.Photo })
+            .Select(e => new { e.Photo, e.PhotoPath })
             .FirstOrDefaultAsync();
         
-        if (eventEntity?.Photo == null || eventEntity.Photo.Length == 0)
+        if (eventEntity == null)
         {
-            return Results.NotFound(new { error = "Photo not found" });
+            return Results.NotFound(new { error = "Event not found" });
         }
 
-        var base64Photo = Convert.ToBase64String(eventEntity.Photo);
-        return Results.Ok(new { photo = base64Photo });
+        // Prioritize new file storage system
+        if (!string.IsNullOrEmpty(eventEntity.PhotoPath))
+        {
+            var photoUrl = fileStorage.GetFileUrl(eventEntity.PhotoPath);
+            return Results.Ok(new { 
+                photoUrl = photoUrl,
+                deprecated = true,
+                message = "This endpoint is deprecated. Use PhotoUrl field from /events endpoint instead."
+            });
+        }
+
+        // Fallback to legacy binary data
+        if (eventEntity.Photo != null && eventEntity.Photo.Length > 0)
+        {
+            var base64Photo = Convert.ToBase64String(eventEntity.Photo);
+            return Results.Ok(new { 
+                photo = base64Photo,
+                deprecated = true,
+                message = "This endpoint is deprecated. Use PhotoUrl field from /events endpoint instead."
+            });
+        }
+
+        return Results.NotFound(new { error = "Photo not found" });
     }
     catch (Exception ex)
     {
@@ -1611,7 +1646,7 @@ static string SanitizeInput(string input)
     return input.Trim();
 }
 
-app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
+app.MapPost("companyevents", async (HttpRequest req, AppDbContext db, IFileStorageService fileStorage) =>
 {
     var form = await req.ReadFormAsync();
     int companyId = int.Parse(form["id"].ToString());
@@ -1627,7 +1662,20 @@ app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
         Title = e.Title,
         Description = e.Description,
         Tags = string.IsNullOrEmpty(e.Tags) ? new List<string>() : e.Tags.Split(",").Select(t => t.Trim()).ToList(),
-        Photo = e.Photo != null ? Convert.ToBase64String(e.Photo) : string.Empty,
+        Likes = db.Likes.Count(l => l.EventId == e.Id), // Add likes count
+        
+        // New URL-based photo storage approach
+        PhotoUrl = !string.IsNullOrEmpty(e.PhotoPath) 
+            ? fileStorage.GetFileUrl(e.PhotoPath) ?? string.Empty 
+            : string.Empty,
+        PhotoPath = e.PhotoPath,
+        HasPhoto = !string.IsNullOrEmpty(e.PhotoPath),
+        
+        // Legacy field for backward compatibility
+        Photo = !string.IsNullOrEmpty(e.PhotoPath) ? "use_photo_url" : string.Empty,
+        
+        Company = e.Company?.Name ?? "Unknown",
+        CompanyId = e.CompanyId,
         EventDate = e.EventDate,
         StartTime = e.StartTime.ToString(@"hh\:mm"),
         EndTime = e.EndTime.ToString(@"hh\:mm"),
@@ -1642,8 +1690,8 @@ app.MapPost("companyevents", async (HttpRequest req, AppDbContext db) =>
     return Results.Ok(eventResponses);
 });
 
-// GET /events/{id} - Get single event by ID
-app.MapGet("/events/{id}", async (int id, AppDbContext db) =>
+// GET /events/{id} - Get single event by ID with URL-based photo storage
+app.MapGet("/events/{id}", async (int id, AppDbContext db, IFileStorageService fileStorage) =>
 {
     var eventItem = await db.Events
         .Include(e => e.Company)
@@ -1661,8 +1709,19 @@ app.MapGet("/events/{id}", async (int id, AppDbContext db) =>
         Description = eventItem.Description,
         Tags = string.IsNullOrEmpty(eventItem.Tags) ? new List<string>() : eventItem.Tags.Split(",").Select(t => t.Trim()).ToList(),
         Likes = await db.Likes.CountAsync(l => l.EventId == eventItem.Id),
-        Photo = eventItem.Photo != null ? Convert.ToBase64String(eventItem.Photo) : string.Empty,
+        
+        // New URL-based photo storage approach
+        PhotoUrl = !string.IsNullOrEmpty(eventItem.PhotoPath) 
+            ? fileStorage.GetFileUrl(eventItem.PhotoPath) ?? string.Empty 
+            : string.Empty,
+        PhotoPath = eventItem.PhotoPath,
+        HasPhoto = !string.IsNullOrEmpty(eventItem.PhotoPath),
+        
+        // Legacy field for backward compatibility
+        Photo = !string.IsNullOrEmpty(eventItem.PhotoPath) ? "use_photo_url" : string.Empty,
+        
         Company = eventItem.Company?.Name ?? "Unknown",
+        CompanyId = eventItem.CompanyId,
         EventDate = eventItem.EventDate,
         StartTime = eventItem.StartTime.ToString(@"hh\:mm"),
         EndTime = eventItem.EndTime.ToString(@"hh\:mm"),
