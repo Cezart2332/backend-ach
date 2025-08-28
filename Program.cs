@@ -713,18 +713,55 @@ app.MapPost("/auth/refresh", async (RefreshTokenRequestDto request, IAuthService
     try
     {
         var ipAddress = GetClientIpAddress(context);
-        try {
-            Console.WriteLine($"[DEBUG] /auth/refresh called. refreshTokenPrefix={ (request.RefreshToken != null ? request.RefreshToken.Substring(0, Math.Min(8, request.RefreshToken.Length)) + "..." : "<null>") } ip={ipAddress}");
-        } catch {}
 
-        var result = await authService.RefreshTokenAsync(request.RefreshToken, ipAddress);
-        
-        if (result == null)
+        // Try to obtain the refresh token from multiple locations for robustness
+        string? token = request?.RefreshToken;
+
+        // Header override (common when clients send it in a header)
+        if (string.IsNullOrEmpty(token))
         {
-            Console.WriteLine($"[DEBUG] /auth/refresh: RefreshTokenAsync returned null for refreshTokenPrefix={ (request.RefreshToken != null ? request.RefreshToken.Substring(0, Math.Min(8, request.RefreshToken.Length)) + "..." : "<null>") } ip={ipAddress}");
+            if (context.Request.Headers.TryGetValue("X-Refresh-Token", out var headerVal) && !string.IsNullOrEmpty(headerVal))
+            {
+                token = headerVal.ToString();
+            }
+        }
+
+        // Authorization: Bearer <token> (some clients use this)
+        if (string.IsNullOrEmpty(token) && context.Request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            var auth = authHeader.ToString();
+            if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                token = auth.Substring("Bearer ".Length).Trim();
+            }
+        }
+
+        // Cookie fallback
+        if (string.IsNullOrEmpty(token) && context.Request.Cookies.TryGetValue("refreshToken", out var cookieVal))
+        {
+            token = cookieVal;
+        }
+
+        try
+        {
+            Console.WriteLine($"[DEBUG] /auth/refresh called. tokenPrefix={ (token != null ? token.Substring(0, Math.Min(8, token.Length)) + "..." : "<null>") } ip={ipAddress}");
+        }
+        catch { }
+
+        if (string.IsNullOrEmpty(token))
+        {
+            Log.Warning("Refresh token not provided in body/header/cookie");
             return Results.Unauthorized();
         }
-        
+
+        var result = await authService.RefreshTokenAsync(token, ipAddress);
+
+        if (result == null)
+        {
+            Console.WriteLine($"[DEBUG] /auth/refresh: RefreshTokenAsync returned null for tokenPrefix={ (token != null ? token.Substring(0, Math.Min(8, token.Length)) + "..." : "<null>") } ip={ipAddress}");
+            return Results.Unauthorized();
+        }
+
         return Results.Ok(result);
     }
     catch (Exception ex)
