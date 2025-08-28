@@ -87,37 +87,66 @@ namespace WebApplication1.Services
 
         public async Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken, string ipAddress)
         {
+            // Log a short prefix only (avoid logging full token)
+            var tokenPrefix = refreshToken != null && refreshToken.Length > 8 ? refreshToken.Substring(0, 8) + "..." : refreshToken;
+
             var storedToken = await _context.RefreshTokens
                 .Include(rt => rt.User)
+                .Include(rt => rt.Company)
                 .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
 
-            if (storedToken == null || !storedToken.IsActive)
+            if (storedToken == null)
             {
-                _logger.LogWarning("Invalid or expired refresh token used from IP: {IpAddress}", ipAddress);
+                _logger.LogWarning("Refresh token not found. prefix={Prefix}, ip={Ip}", tokenPrefix, ipAddress);
                 return null;
             }
 
-            // Revoke the old token
+            // Log token state for debugging (without full token)
+            _logger.LogInformation("Refresh token lookup: prefix={Prefix}, userId={UserId}, companyId={CompanyId}, isActive={IsActive}, isExpired={IsExpired}, isRevoked={IsRevoked}",
+                tokenPrefix,
+                storedToken.UserId?.ToString() ?? "<none>",
+                storedToken.CompanyId?.ToString() ?? "<none>",
+                storedToken.IsActive,
+                storedToken.IsExpired,
+                storedToken.IsRevoked);
+
+            if (!storedToken.IsActive)
+            {
+                _logger.LogWarning("Refresh token not active. prefix={Prefix}, ip={Ip}", tokenPrefix, ipAddress);
+                return null;
+            }
+
+            // Revoke the old token (rotate)
             storedToken.IsRevoked = true;
             storedToken.RevokedAt = DateTime.UtcNow;
             storedToken.RevokedByIp = ipAddress;
 
-            // Generate new tokens
-            if (storedToken.User == null)
+            AuthResponseDto? authResponse = null;
+
+            // If token belongs to a user, generate user tokens
+            if (storedToken.User != null)
             {
-                _logger.LogError("User not found for refresh token");
+                authResponse = await GenerateTokensAsync(storedToken.User);
+                _logger.LogInformation("Generated new tokens for user {UserId} via refresh. prefix={Prefix}", storedToken.UserId, tokenPrefix);
+            }
+            else if (storedToken.Company != null)
+            {
+                // Support company refresh tokens
+                authResponse = await GenerateTokensForCompanyAsync(storedToken.Company);
+                _logger.LogInformation("Generated new tokens for company {CompanyId} via refresh. prefix={Prefix}", storedToken.CompanyId, tokenPrefix);
+            }
+            else
+            {
+                _logger.LogError("Refresh token has no associated user or company. prefix={Prefix}", tokenPrefix);
                 return null;
             }
-            
-            var authResponse = await GenerateTokensAsync(storedToken.User);
-            
+
             // Mark the old token as replaced
             storedToken.ReplacedByToken = authResponse.RefreshToken;
-            
+
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Tokens refreshed successfully for user {UserId} from IP: {IpAddress}", 
-                storedToken.UserId, ipAddress);
+            _logger.LogInformation("Tokens refreshed successfully for prefix={Prefix} from IP: {IpAddress}", tokenPrefix, ipAddress);
 
             return authResponse;
         }
