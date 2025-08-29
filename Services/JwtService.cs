@@ -221,8 +221,8 @@ namespace WebApplication1.Services
             {
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddMinutes(15), // Short-lived access token
-                Issuer = _configuration["Jwt:Issuer"],
-                Audience = _configuration["Jwt:Audience"],
+                Issuer = _configuration["Jwt:Issuer"] ?? _configuration["JWT_ISSUER"] ?? "https://api.acoomh.ro",
+                Audience = _configuration["Jwt:Audience"] ?? _configuration["JWT_AUDIENCE"] ?? "https://acoomh.ro",
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
 
@@ -269,8 +269,8 @@ namespace WebApplication1.Services
             {
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddMinutes(15), // Short-lived access token
-                Issuer = _configuration["Jwt:Issuer"],
-                Audience = _configuration["Jwt:Audience"],
+                Issuer = _configuration["Jwt:Issuer"] ?? _configuration["JWT_ISSUER"] ?? "https://api.acoomh.ro",
+                Audience = _configuration["Jwt:Audience"] ?? _configuration["JWT_AUDIENCE"] ?? "https://acoomh.ro",
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
 

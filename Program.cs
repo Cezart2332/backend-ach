@@ -141,6 +141,15 @@ else
 
 var jwtKey = Encoding.UTF8.GetBytes(jwtSecret);
 
+// JWT Configuration Debug
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? builder.Configuration["JWT_ISSUER"] ?? "https://api.acoomh.ro";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? builder.Configuration["JWT_AUDIENCE"] ?? "https://acoomh.ro";
+
+Console.WriteLine($"🔐 JWT Configuration:");
+Console.WriteLine($"   Issuer: {jwtIssuer}");
+Console.WriteLine($"   Audience: {jwtAudience}");
+Console.WriteLine($"   Secret Length: {jwtSecret?.Length ?? 0} chars");
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -155,9 +164,9 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(jwtKey),
         ValidateIssuer = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? builder.Configuration["JWT_ISSUER"] ?? "AcoomH-API",
+        ValidIssuer = jwtIssuer,
         ValidateAudience = true,
-        ValidAudience = builder.Configuration["Jwt:Audience"] ?? builder.Configuration["JWT_AUDIENCE"] ?? "AcoomH-App",
+        ValidAudience = jwtAudience,
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
         RequireExpirationTime = true
@@ -167,12 +176,28 @@ builder.Services.AddAuthentication(options =>
     {
         OnAuthenticationFailed = context =>
         {
-            Log.Warning("JWT Authentication failed: {Exception}", context.Exception.Message);
+            Log.Warning("JWT Authentication failed: {Exception} | Token: {TokenPrefix}", 
+                context.Exception.Message, 
+                context.Request.Headers.Authorization.FirstOrDefault()?.Split(' ').LastOrDefault()?.Substring(0, Math.Min(8, context.Request.Headers.Authorization.FirstOrDefault()?.Split(' ').LastOrDefault()?.Length ?? 0)) + "...");
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
         {
-            Log.Information("JWT Token validated for user: {UserId}", context.Principal?.Identity?.Name);
+            var userId = context.Principal?.FindFirst("sub")?.Value;
+            var role = context.Principal?.FindFirst("role")?.Value;
+            Log.Information("JWT Token validated successfully - UserId: {UserId}, Role: {Role}", userId, role);
+            return Task.CompletedTask;
+        },
+        OnChallenge = context =>
+        {
+            Log.Warning("JWT Challenge triggered: {Error}, {ErrorDescription}", context.Error, context.ErrorDescription);
+            return Task.CompletedTask;
+        },
+        OnMessageReceived = context =>
+        {
+            var token = context.Request.Headers.Authorization.FirstOrDefault();
+            var tokenPrefix = token?.Split(' ').LastOrDefault()?.Substring(0, Math.Min(8, token?.Split(' ').LastOrDefault()?.Length ?? 0)) + "...";
+            Log.Information("JWT Message received - TokenPrefix: {TokenPrefix}", tokenPrefix);
             return Task.CompletedTask;
         }
     };
@@ -791,19 +816,69 @@ app.MapPost("/auth/logout", async (RefreshTokenRequestDto request, IAuthService 
   .WithTags("Authentication")
   .WithOpenApi();
 
+// Test endpoint for debugging user authentication (no auth required)
+app.MapGet("/test/user-token", (HttpContext context) =>
+{
+    var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+    if (string.IsNullOrEmpty(authHeader))
+    {
+        return Results.Ok(new { hasToken = false, message = "No authorization header" });
+    }
+
+    if (!authHeader.StartsWith("Bearer "))
+    {
+        return Results.Ok(new { hasToken = false, message = "Invalid token format" });
+    }
+
+    var token = authHeader.Substring("Bearer ".Length);
+    var tokenPrefix = token.Length > 8 ? token.Substring(0, 8) + "..." : token;
+
+    var claims = context.User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+    var isAuthenticated = context.User.Identity?.IsAuthenticated ?? false;
+    var userId = context.User.FindFirst("sub")?.Value;
+    var role = context.User.FindFirst("role")?.Value;
+
+    return Results.Ok(new
+    {
+        hasToken = true,
+        tokenPrefix,
+        isAuthenticated,
+        userId,
+        role,
+        claimsCount = claims.Count,
+        claims = claims.Take(10).ToList() // Limit for security
+    });
+}).WithTags("Testing");
+
 app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
 {
     try
     {
+        // Add debug logging for token validation
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        Log.Information("Auth/me called with auth header: {HasAuth}", !string.IsNullOrEmpty(authHeader));
+        
+        if (!context.User.Identity?.IsAuthenticated == true)
+        {
+            Log.Warning("Auth/me: User not authenticated");
+            return Results.Unauthorized();
+        }
+
         var userId = context.User.FindFirst("sub")?.Value;
+        var userRole = context.User.FindFirst("role")?.Value;
+        
+        Log.Information("Auth/me: UserId from token: {UserId}, Role: {Role}", userId, userRole);
+        
         if (string.IsNullOrEmpty(userId) || !int.TryParse(userId, out var userIdInt))
         {
+            Log.Warning("Auth/me: Invalid userId in token: {UserId}", userId);
             return Results.Unauthorized();
         }
 
         var user = await db.Users.FindAsync(userIdInt);
         if (user == null || !user.IsActive)
         {
+            Log.Warning("Auth/me: User not found or inactive: {UserId}", userIdInt);
             return Results.NotFound();
         }
 
@@ -814,9 +889,12 @@ app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
             FirstName = user.FirstName,
             LastName = user.LastName,
             Email = user.Email,
-            Role = user.Role
+            Role = user.Role ?? "User",
+            ProfileImage = user.ProfileImage?.Length > 0 ? Convert.ToBase64String(user.ProfileImage) : null,
+            Scopes = new List<string> { "read", "write" } // Standard user scopes
         };
 
+        Log.Information("Auth/me: Returning user data for {UserId}", user.Id);
         return Results.Ok(userDto);
     }
     catch (Exception ex)
