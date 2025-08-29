@@ -850,6 +850,41 @@ app.MapGet("/test/user-token", (HttpContext context) =>
     });
 }).WithTags("Testing");
 
+// Test endpoint to decode JWT without validation (for debugging)
+app.MapGet("/test/decode-jwt", (HttpContext context) =>
+{
+    try
+    {
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+        {
+            return Results.BadRequest("No valid bearer token");
+        }
+
+        var token = authHeader.Substring("Bearer ".Length);
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var jsonToken = handler.ReadJwtToken(token);
+
+        var tokenInfo = new
+        {
+            header = jsonToken.Header,
+            payload = jsonToken.Payload,
+            issuer = jsonToken.Issuer,
+            audiences = jsonToken.Audiences,
+            validFrom = jsonToken.ValidFrom,
+            validTo = jsonToken.ValidTo,
+            isExpired = jsonToken.ValidTo < DateTime.UtcNow,
+            claims = jsonToken.Claims.Select(c => new { c.Type, c.Value }).ToList()
+        };
+
+        return Results.Ok(tokenInfo);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+}).WithTags("Testing");
+
 app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
 {
     try

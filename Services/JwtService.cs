@@ -128,6 +128,19 @@ namespace WebApplication1.Services
             {
                 authResponse = await GenerateTokensAsync(storedToken.User);
                 _logger.LogInformation("Generated new tokens for user {UserId} via refresh. prefix={Prefix}", storedToken.UserId, tokenPrefix);
+                
+                // Debug: Log token details for troubleshooting
+                try
+                {
+                    var handler = new JwtSecurityTokenHandler();
+                    var jwt = handler.ReadJwtToken(authResponse.AccessToken);
+                    _logger.LogInformation("User token debug - Issuer: {Issuer}, Audience: {Audience}, Expires: {Expires}, Role: {Role}", 
+                        jwt.Issuer, string.Join(",", jwt.Audiences), jwt.ValidTo, jwt.Claims.FirstOrDefault(c => c.Type == "role")?.Value);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to debug user token");
+                }
             }
             else if (storedToken.Company != null)
             {
