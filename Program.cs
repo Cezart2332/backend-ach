@@ -629,6 +629,44 @@ app.MapGet("/test/event-file-storage-diagnostic/{eventId}", async (int eventId, 
     }
 }).WithTags("Test");
 
+// Test endpoint for company file storage diagnostics
+app.MapGet("/test/company-file-storage-diagnostic/{companyId}", async (int companyId, IFileStorageService fileStorage) =>
+{
+    try
+    {
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
+        var companyPath = Path.Combine(fileStorageBasePath, "companies", companyId.ToString());
+        var certificatesPath = Path.Combine(companyPath, "certificates");
+
+        return Results.Ok(new
+        {
+            companyId = companyId,
+            baseStoragePath = fileStorageBasePath,
+            companyDirectoryPath = companyPath,
+            certificatesDirectoryPath = certificatesPath,
+            tests = new
+            {
+                companyDirectoryExists = Directory.Exists(companyPath),
+                certificatesDirectoryExists = Directory.Exists(certificatesPath),
+                canCreateCompanyDirectory = await fileStorage.EnsureCompanyDirectoryAsync(companyId),
+                files = Directory.Exists(certificatesPath) ? 
+                    Directory.GetFiles(certificatesPath).Select(f => new
+                    {
+                        fileName = Path.GetFileName(f),
+                        fullPath = f,
+                        size = new FileInfo(f).Length,
+                        relativePath = Path.GetRelativePath(fileStorageBasePath, f).Replace('\\', '/'),
+                        url = $"/files/{Path.GetRelativePath(fileStorageBasePath, f).Replace('\\', '/')}"
+                    }).ToArray() : Array.Empty<object>()
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Company file storage diagnostic failed: {ex.Message}");
+    }
+}).WithTags("Test");
+
 // Test endpoint to debug which field causes the issue
 app.MapGet("/test/location-fields", async (AppDbContext db) =>
 {
@@ -1006,7 +1044,7 @@ app.MapPost("/auth/company-login", async (CompanyLoginRequestDto request, IAuthS
   .WithOpenApi()
   .Accepts<CompanyLoginRequestDto>("application/json");
 
-app.MapPost("/auth/company-register", async (HttpContext context, IAuthService authService) =>
+app.MapPost("/auth/company-register", async (HttpContext context, IAuthService authService, IFileStorageService fileStorage) =>
 {
     try
     {
@@ -1068,43 +1106,41 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
             return Results.BadRequest(new { error = "Password is required" });
         }
 
-        // Handle certificate file upload if present
-        string? certificatePath = null;
-        if (certificateFile != null && certificateFile.Length > 0)
-        {
-            // Validate file type
-            var allowedTypes = new[] { "application/pdf", "image/jpeg", "image/jpg", "image/png" };
-            if (!allowedTypes.Contains(certificateFile.ContentType.ToLower()))
-            {
-                return Results.BadRequest(new { error = "Only PDF and image files are allowed for certificates" });
-            }
-
-            // Validate file size (max 10MB)
-            if (certificateFile.Length > 10 * 1024 * 1024)
-            {
-                return Results.BadRequest(new { error = "Certificate file size cannot exceed 10MB" });
-            }
-
-            // Create uploads directory if it doesn't exist
-            var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "certificates");
-            Directory.CreateDirectory(uploadsDir);
-
-            // Generate unique filename
-            var fileExtension = Path.GetExtension(certificateFile.FileName);
-            var fileName = $"{Guid.NewGuid()}{fileExtension}";
-            certificatePath = Path.Combine(uploadsDir, fileName);
-
-            // Save file
-            using var stream = new FileStream(certificatePath, FileMode.Create);
-            await certificateFile.CopyToAsync(stream);
-
-            Log.Information("Certificate file uploaded - Path: {Path}, Size: {Size}", certificatePath, certificateFile.Length);
-        }
-
-        var result = await authService.RegisterCompanyAsync(request, certificatePath);
+        // First, register the company to get the ID
+        var result = await authService.RegisterCompanyAsync(request, null);
         
-        Log.Information("Company registered successfully - Email: {Email}, CompanyId: {CompanyId}", 
-            request.Email, result.Company?.Id);
+        // Handle certificate file upload if present (after company creation)
+        string? certificatePath = null;
+        if (certificateFile != null && certificateFile.Length > 0 && result.Company != null)
+        {
+            try
+            {
+                // Use FileStorageService to save the certificate
+                certificatePath = await fileStorage.SaveCompanyCertificateAsync(certificateFile, result.Company.Id);
+                
+                // Update the company record with the certificate path
+                using var scope = context.RequestServices.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                
+                var company = await dbContext.Companies.FindAsync(result.Company.Id);
+                if (company != null)
+                {
+                    company.CertificatePath = certificatePath;
+                    await dbContext.SaveChangesAsync();
+                    
+                    Log.Information("Certificate saved for company {CompanyId}: {Path}", result.Company.Id, certificatePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to save certificate for company {CompanyId}", result.Company?.Id);
+                // Don't fail the registration if certificate upload fails
+                Log.Warning("Company registration completed but certificate upload failed - Email: {Email}", request.Email);
+            }
+        }
+        
+        Log.Information("Company registered successfully - Email: {Email}, CompanyId: {CompanyId}, HasCertificate: {HasCertificate}", 
+            request.Email, result.Company?.Id, !string.IsNullOrEmpty(certificatePath));
             
         return Results.Created("/auth/company-me", result);
     }
@@ -1165,6 +1201,169 @@ app.MapGet("/auth/company-me", async (HttpContext context, AppDbContext db) =>
     }
 }).RequireAuthorization()
   .WithTags("Company Authentication")
+  .WithOpenApi();
+
+// Company activation endpoint - Admin only
+app.MapPatch("/admin/companies/{id:int}/activate", async (int id, bool isActive, AppDbContext db, HttpContext context) =>
+{
+    try
+    {
+        // Check if user is admin
+        var userRole = context.User.FindFirst("role")?.Value;
+        if (userRole != "Admin")
+        {
+            Log.Warning("Unauthorized company activation attempt by user: {Role}", userRole);
+            return Results.Forbid();
+        }
+
+        var company = await db.Companies.FindAsync(id);
+        if (company == null)
+        {
+            return Results.NotFound(new { error = "Company not found" });
+        }
+
+        var oldStatus = company.IsActive;
+        company.IsActive = isActive;
+        company.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
+
+        Log.Information("Company {CompanyId} ({CompanyName}) status changed from {OldStatus} to {NewStatus} by admin", 
+            company.Id, company.Name, oldStatus, isActive);
+
+        return Results.Ok(new 
+        { 
+            companyId = company.Id,
+            name = company.Name,
+            email = company.Email,
+            isActive = company.IsActive,
+            updatedAt = company.UpdatedAt,
+            message = $"Company {(isActive ? "activated" : "deactivated")} successfully"
+        });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error updating company activation status for company {CompanyId}", id);
+        return Results.Problem("An error occurred while updating company status");
+    }
+}).RequireAuthorization("AdminPolicy")
+  .WithTags("Company Management")
+  .WithOpenApi();
+
+// Get company certificate endpoint - Admin only
+app.MapGet("/admin/companies/{id:int}/certificate", async (int id, AppDbContext db, IFileStorageService fileStorage, HttpContext context) =>
+{
+    try
+    {
+        // Check if user is admin
+        var userRole = context.User.FindFirst("role")?.Value;
+        if (userRole != "Admin")
+        {
+            Log.Warning("Unauthorized certificate access attempt by user: {Role}", userRole);
+            return Results.Forbid();
+        }
+
+        var company = await db.Companies.FindAsync(id);
+        if (company == null)
+        {
+            return Results.NotFound(new { error = "Company not found" });
+        }
+
+        if (string.IsNullOrEmpty(company.CertificatePath))
+        {
+            return Results.NotFound(new { error = "No certificate found for this company" });
+        }
+
+        var certificateUrl = fileStorage.GetFileUrl(company.CertificatePath);
+        
+        return Results.Ok(new 
+        { 
+            companyId = company.Id,
+            companyName = company.Name,
+            certificateUrl = certificateUrl,
+            certificatePath = company.CertificatePath,
+            uploadedAt = company.CreatedAt
+        });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error retrieving certificate for company {CompanyId}", id);
+        return Results.Problem("An error occurred while retrieving certificate");
+    }
+}).RequireAuthorization("AdminPolicy")
+  .WithTags("Company Management")
+  .WithOpenApi();
+
+// List all companies with activation status - Admin only
+app.MapGet("/admin/companies", async (int? page, int? limit, bool? isActive, AppDbContext db, IFileStorageService fileStorage, HttpContext context) =>
+{
+    try
+    {
+        // Check if user is admin
+        var userRole = context.User.FindFirst("role")?.Value;
+        if (userRole != "Admin")
+        {
+            Log.Warning("Unauthorized company list access attempt by user: {Role}", userRole);
+            return Results.Forbid();
+        }
+
+        var pageNum = page ?? 1;
+        var limitNum = Math.Min(limit ?? 20, 100);
+        var skip = (pageNum - 1) * limitNum;
+
+        var query = db.Companies.AsQueryable();
+        
+        if (isActive.HasValue)
+        {
+            query = query.Where(c => c.IsActive == isActive.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+        
+        var companies = await query
+            .OrderByDescending(c => c.CreatedAt)
+            .Skip(skip)
+            .Take(limitNum)
+            .Select(c => new 
+            {
+                c.Id,
+                c.Name,
+                c.Email,
+                c.Description,
+                c.Category,
+                c.IsActive,
+                c.CreatedAt,
+                c.UpdatedAt,
+                HasCertificate = !string.IsNullOrEmpty(c.CertificatePath),
+                CertificateUrl = !string.IsNullOrEmpty(c.CertificatePath) 
+                    ? fileStorage.GetFileUrl(c.CertificatePath) 
+                    : null
+            })
+            .ToListAsync();
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / limitNum);
+
+        return Results.Ok(new
+        {
+            data = companies,
+            pagination = new
+            {
+                page = pageNum,
+                limit = limitNum,
+                total = totalCount,
+                totalPages = totalPages,
+                hasNext = pageNum < totalPages,
+                hasPrev = pageNum > 1
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error retrieving companies list");
+        return Results.Problem("An error occurred while retrieving companies");
+    }
+}).RequireAuthorization("AdminPolicy")
+  .WithTags("Company Management")
   .WithOpenApi();
 
 // ==================== LEGACY ENDPOINTS (TO BE MIGRATED) ==================== 

@@ -11,7 +11,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create upload directory
-RUN mkdir -p /var/www/uploads && chmod -R 755 /var/www/uploads
+RUN mkdir -p /app/uploads && chmod -R 755 /app/uploads
 
 # Copy application files
 COPY --from=build /app .

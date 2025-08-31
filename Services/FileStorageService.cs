@@ -9,14 +9,17 @@ namespace WebApplication1.Services
         Task<string> SaveFileAsync(byte[] fileData, string fileName, int locationId, string fileType);
         Task<string> SaveEventFileAsync(IFormFile file, int eventId, string fileType);
         Task<string> SaveEventFileAsync(byte[] fileData, string fileName, int eventId, string fileType);
+        Task<string> SaveCompanyCertificateAsync(IFormFile file, int companyId);
         Task<bool> DeleteFileAsync(string filePath);
         Task<FileInfo?> GetFileInfoAsync(string filePath);
         Task<byte[]?> GetFileAsync(string filePath);
         string GetFileUrl(string filePath);
         Task<bool> EnsureLocationDirectoryAsync(int locationId);
         Task<bool> EnsureEventDirectoryAsync(int eventId);
+        Task<bool> EnsureCompanyDirectoryAsync(int companyId);
         Task<bool> DeleteLocationDirectoryAsync(int locationId);
         Task<bool> DeleteEventDirectoryAsync(int eventId);
+        Task<bool> DeleteCompanyDirectoryAsync(int companyId);
     }
 
     public class FileStorageService : IFileStorageService
@@ -345,6 +348,89 @@ namespace WebApplication1.Services
             {
                 _logger.LogError(ex, "Failed to delete directory for event {EventId}", eventId);
                 return Task.FromResult(false);
+            }
+        }
+
+        public Task<bool> EnsureCompanyDirectoryAsync(int companyId)
+        {
+            try
+            {
+                var companyPath = Path.Combine(_baseStoragePath, "companies", companyId.ToString());
+                var certificatesPath = Path.Combine(companyPath, "certificates");
+
+                if (!Directory.Exists(certificatesPath))
+                {
+                    Directory.CreateDirectory(certificatesPath);
+                    _logger.LogInformation("Created certificates directory for company {CompanyId}: {Path}", companyId, certificatesPath);
+                }
+
+                return Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure directory for company {CompanyId}", companyId);
+                return Task.FromResult(false);
+            }
+        }
+
+        public Task<bool> DeleteCompanyDirectoryAsync(int companyId)
+        {
+            try
+            {
+                var companyPath = Path.Combine(_baseStoragePath, "companies", companyId.ToString());
+                if (Directory.Exists(companyPath))
+                {
+                    Directory.Delete(companyPath, true);
+                    _logger.LogInformation("Deleted directory for company {CompanyId}: {Path}", companyId, companyPath);
+                }
+                return Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete directory for company {CompanyId}", companyId);
+                return Task.FromResult(false);
+            }
+        }
+
+        public async Task<string> SaveCompanyCertificateAsync(IFormFile file, int companyId)
+        {
+            try
+            {
+                // Ensure directory exists
+                await EnsureCompanyDirectoryAsync(companyId);
+
+                // Validate file type for certificates
+                var allowedTypes = new[] { "application/pdf", "image/jpeg", "image/jpg", "image/png" };
+                if (!allowedTypes.Contains(file.ContentType.ToLower()))
+                {
+                    throw new ArgumentException("Only PDF and image files are allowed for certificates");
+                }
+
+                // Validate file size (max 10MB)
+                if (file.Length > 10 * 1024 * 1024)
+                {
+                    throw new ArgumentException("Certificate file size cannot exceed 10MB");
+                }
+
+                // Generate secure filename
+                var fileExtension = Path.GetExtension(file.FileName);
+                var fileName = $"certificate_{DateTime.UtcNow:yyyyMMdd_HHmmss}{fileExtension}";
+                var relativePath = Path.Combine("companies", companyId.ToString(), "certificates", fileName);
+                var fullPath = Path.Combine(_baseStoragePath, relativePath);
+
+                // Save file
+                using var stream = new FileStream(fullPath, FileMode.Create);
+                await file.CopyToAsync(stream);
+
+                _logger.LogInformation("Saved certificate for company {CompanyId}: {FileName} ({Size} bytes)", 
+                    companyId, fileName, file.Length);
+
+                return relativePath.Replace('\\', '/');
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save certificate for company {CompanyId}", companyId);
+                throw;
             }
         }
 
