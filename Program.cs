@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using System.IO;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -159,6 +160,10 @@ builder.Services.AddAuthentication(options =>
 {
     options.RequireHttpsMetadata = false; // Disable HTTPS requirement when behind reverse proxy
     options.SaveToken = true;
+    
+    // Important: Map standard JWT claims properly
+    options.MapInboundClaims = false; // Keep original claim names
+    
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
@@ -169,7 +174,11 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtAudience,
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
-        RequireExpirationTime = true
+        RequireExpirationTime = true,
+        
+        // Important: Map claim names properly
+        NameClaimType = "sub",
+        RoleClaimType = "role"
     };
     
     options.Events = new JwtBearerEvents
@@ -899,14 +908,23 @@ app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
             return Results.Unauthorized();
         }
 
-        var userId = context.User.FindFirst("sub")?.Value;
-        var userRole = context.User.FindFirst("role")?.Value;
+        // Try multiple claim types for robustness
+        var userId = context.User.FindFirst("sub")?.Value ?? 
+                     context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                     context.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+                     
+        var userRole = context.User.FindFirst("role")?.Value ?? 
+                      context.User.FindFirst(ClaimTypes.Role)?.Value ??
+                      context.User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value;
         
+        // Debug: Log all available claims
+        var allClaims = context.User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+        Log.Information("Auth/me: All claims: {@Claims}", allClaims);
         Log.Information("Auth/me: UserId from token: {UserId}, Role: {Role}", userId, userRole);
         
         if (string.IsNullOrEmpty(userId) || !int.TryParse(userId, out var userIdInt))
         {
-            Log.Warning("Auth/me: Invalid userId in token: {UserId}", userId);
+            Log.Warning("Auth/me: Invalid userId in token: {UserId}. Available claims: {@Claims}", userId, allClaims.Take(5));
             return Results.Unauthorized();
         }
 
