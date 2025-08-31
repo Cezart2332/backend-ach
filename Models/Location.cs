@@ -28,6 +28,7 @@ namespace WebApplication1.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public bool IsActive { get; set; } = true;
+        public bool ReservationsEnabled { get; set; } = true;
 
         // Navigation properties
         public Company Company { get; set; } = null!;

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.FileProviders;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using Serilog;
 using System.ComponentModel.DataAnnotations;
@@ -1717,6 +1718,7 @@ app.MapGet("/locations", async (int? page, int? limit, string? category, string?
                         : string.Empty,
                     HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
                     HasMenu = !string.IsNullOrEmpty(l.MenuPath),
+                    ReservationsEnabled = l.ReservationsEnabled,
                     
                     // Legacy fields for backward compatibility
                     Photo = loadPhotos && !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
@@ -2644,6 +2646,7 @@ app.MapGet("/companies/{companyId}/locations", async (int companyId, AppDbContex
         MenuUrl = !string.IsNullOrEmpty(l.MenuPath) ? fileStorage.GetFileUrl(l.MenuPath) : string.Empty,
         HasPhoto = !string.IsNullOrEmpty(l.PhotoPath),
         HasMenu = !string.IsNullOrEmpty(l.MenuPath),
+        l.ReservationsEnabled,
         
         // Legacy support for backward compatibility
         Photo = !string.IsNullOrEmpty(l.PhotoPath) ? "use_photo_url" : string.Empty,
@@ -2683,6 +2686,7 @@ app.MapGet("/locations/{id}", async (int id, AppDbContext db, IFileStorageServic
         MenuUrl = !string.IsNullOrEmpty(location.MenuPath) ? fileStorage.GetFileUrl(location.MenuPath) : string.Empty,
         HasPhoto = !string.IsNullOrEmpty(location.PhotoPath),
         HasMenu = !string.IsNullOrEmpty(location.MenuPath),
+        location.ReservationsEnabled,
         
         // Legacy support (return URLs instead of binary data)
         Photo = !string.IsNullOrEmpty(location.PhotoPath) ? "use_photo_url" : string.Empty,
@@ -2766,6 +2770,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             Longitude = lngParsed,
             Tags = SanitizeInput(form["tags"].ToString()) ?? string.Empty,
             Description = string.IsNullOrWhiteSpace(descriptionRaw) ? null : SanitizeInput(descriptionRaw),
+            ReservationsEnabled = form["reservationsEnabled"].ToString().ToLower() != "false", // Default to true
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             IsActive = true
@@ -2838,6 +2843,7 @@ app.MapPost("/companies/{companyId}/locations", async (int companyId, HttpReques
             location.Latitude,
             location.Longitude,
             location.Description,
+            location.ReservationsEnabled,
             Tags = string.IsNullOrEmpty(location.Tags) ? new string[0] : location.Tags.Split(',').Select(t => t.Trim()).ToArray(),
             PhotoUrl = !string.IsNullOrEmpty(location.PhotoPath) ? fileStorage.GetFileUrl(location.PhotoPath) : string.Empty,
             location.MenuName,
@@ -2906,6 +2912,10 @@ app.MapPut("/locations/{id}", async (int id, HttpRequest req, AppDbContext db, I
         {
             var descValue = form["description"].ToString();
             location.Description = string.IsNullOrWhiteSpace(descValue) ? null : SanitizeInput(descValue);
+        }
+        if (form.ContainsKey("reservationsEnabled"))
+        {
+            location.ReservationsEnabled = form["reservationsEnabled"].ToString().ToLower() != "false";
         }
         location.UpdatedAt = DateTime.UtcNow;
 
@@ -3010,6 +3020,44 @@ app.MapDelete("/locations/{id}", async (int id, AppDbContext db) =>
     await db.SaveChangesAsync();
     
     return Results.NoContent();
+});
+
+// Toggle reservations enabled/disabled for a location
+app.MapPatch("/locations/{id}/reservations", async (int id, HttpRequest req, AppDbContext db) =>
+{
+    try
+    {
+        var location = await db.Locations.FindAsync(id);
+        if (location is null || !location.IsActive)
+        {
+            return Results.NotFound();
+        }
+
+        var body = await req.ReadFromJsonAsync<JsonElement>();
+        if (!body.TryGetProperty("enabled", out var enabledElement))
+        {
+            return Results.BadRequest(new { error = "Property 'enabled' is required" });
+        }
+
+        var enabled = enabledElement.GetBoolean();
+        location.ReservationsEnabled = enabled;
+        location.UpdatedAt = DateTime.UtcNow;
+        
+        await db.SaveChangesAsync();
+        
+        return Results.Ok(new 
+        { 
+            message = $"Reservations {(enabled ? "enabled" : "disabled")} for location {location.Name}",
+            locationId = location.Id,
+            locationName = location.Name,
+            reservationsEnabled = location.ReservationsEnabled
+        });
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Error toggling reservations for location {LocationId}", id);
+        return Results.Problem($"Error updating reservations setting: {ex.Message}");
+    }
 });
 
 // Get location hours
@@ -3410,6 +3458,23 @@ app.MapPost("/reservation", async (HttpRequest req, AppDbContext db) =>
     {
         var form = await req.ReadFormAsync();
         
+        var locationId = int.Parse(form["locationId"].ToString());
+        
+        // Check if location exists and has reservations enabled
+        var location = await db.Locations
+            .Where(l => l.Id == locationId && l.IsActive)
+            .FirstOrDefaultAsync();
+            
+        if (location is null)
+        {
+            return Results.NotFound(new { error = "Location not found" });
+        }
+        
+        if (!location.ReservationsEnabled)
+        {
+            return Results.BadRequest(new { error = "Reservations are not enabled for this location" });
+        }
+        
         var reservation = new Reservation
         {
             CustomerName = form["customerName"].ToString(),
@@ -3419,7 +3484,7 @@ app.MapPost("/reservation", async (HttpRequest req, AppDbContext db) =>
             ReservationTime = TimeSpan.Parse(form["reservationTime"].ToString()),
             NumberOfPeople = int.Parse(form["numberOfPeople"].ToString()),
             SpecialRequests = form["specialRequests"].ToString(),
-            LocationId = int.Parse(form["locationId"].ToString()),
+            LocationId = locationId,
             Status = ReservationStatus.Pending,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
