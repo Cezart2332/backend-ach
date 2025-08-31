@@ -87,6 +87,18 @@ namespace WebApplication1.Models.Auth
         
         [JsonPropertyName("isActive")]
         public bool IsActive { get; set; }
+        
+        [JsonPropertyName("certificatePath")]
+        public string? CertificatePath { get; set; }
+        
+        [JsonPropertyName("photoUrl")]
+        public string? PhotoUrl { get; set; }
+        
+        [JsonPropertyName("hasPhoto")]
+        public bool HasPhoto { get; set; }
+        
+        [JsonPropertyName("hasCertificate")]
+        public bool HasCertificate { get; set; }
     }
 
     public class RegisterRequestDto

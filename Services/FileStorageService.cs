@@ -10,6 +10,7 @@ namespace WebApplication1.Services
         Task<string> SaveEventFileAsync(IFormFile file, int eventId, string fileType);
         Task<string> SaveEventFileAsync(byte[] fileData, string fileName, int eventId, string fileType);
         Task<string> SaveCompanyCertificateAsync(IFormFile file, int companyId);
+        Task<string> SaveCompanyPhotoAsync(IFormFile file, int companyId);
         Task<bool> DeleteFileAsync(string filePath);
         Task<FileInfo?> GetFileInfoAsync(string filePath);
         Task<byte[]?> GetFileAsync(string filePath);
@@ -357,11 +358,18 @@ namespace WebApplication1.Services
             {
                 var companyPath = Path.Combine(_baseStoragePath, "companies", companyId.ToString());
                 var certificatesPath = Path.Combine(companyPath, "certificates");
+                var photosPath = Path.Combine(companyPath, "photos");
 
                 if (!Directory.Exists(certificatesPath))
                 {
                     Directory.CreateDirectory(certificatesPath);
                     _logger.LogInformation("Created certificates directory for company {CompanyId}: {Path}", companyId, certificatesPath);
+                }
+
+                if (!Directory.Exists(photosPath))
+                {
+                    Directory.CreateDirectory(photosPath);
+                    _logger.LogInformation("Created photos directory for company {CompanyId}: {Path}", companyId, photosPath);
                 }
 
                 return Task.FromResult(true);
@@ -399,7 +407,7 @@ namespace WebApplication1.Services
                 // Ensure directory exists
                 await EnsureCompanyDirectoryAsync(companyId);
 
-                // Validate file type for certificates
+                // Validate file type for certificates (stricter - PDFs preferred, but allow images as backup)
                 var allowedTypes = new[] { "application/pdf", "image/jpeg", "image/jpg", "image/png" };
                 if (!allowedTypes.Contains(file.ContentType.ToLower()))
                 {
@@ -412,8 +420,21 @@ namespace WebApplication1.Services
                     throw new ArgumentException("Certificate file size cannot exceed 10MB");
                 }
 
-                // Generate secure filename
-                var fileExtension = Path.GetExtension(file.FileName);
+                // Generate secure filename with proper extension
+                var fileExtension = Path.GetExtension(file.FileName)?.ToLower();
+                if (string.IsNullOrEmpty(fileExtension))
+                {
+                    // Determine extension from content type if missing
+                    fileExtension = file.ContentType.ToLower() switch
+                    {
+                        "application/pdf" => ".pdf",
+                        "image/jpeg" => ".jpg",
+                        "image/jpg" => ".jpg",
+                        "image/png" => ".png",
+                        _ => ".pdf" // default
+                    };
+                }
+
                 var fileName = $"certificate_{DateTime.UtcNow:yyyyMMdd_HHmmss}{fileExtension}";
                 var relativePath = Path.Combine("companies", companyId.ToString(), "certificates", fileName);
                 var fullPath = Path.Combine(_baseStoragePath, relativePath);
@@ -422,14 +443,70 @@ namespace WebApplication1.Services
                 using var stream = new FileStream(fullPath, FileMode.Create);
                 await file.CopyToAsync(stream);
 
-                _logger.LogInformation("Saved certificate for company {CompanyId}: {FileName} ({Size} bytes)", 
-                    companyId, fileName, file.Length);
+                _logger.LogInformation("Saved certificate for company {CompanyId}: {FileName} ({Size} bytes, {ContentType})", 
+                    companyId, fileName, file.Length, file.ContentType);
 
                 return relativePath.Replace('\\', '/');
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save certificate for company {CompanyId}", companyId);
+                throw;
+            }
+        }
+
+        public async Task<string> SaveCompanyPhotoAsync(IFormFile file, int companyId)
+        {
+            try
+            {
+                // Ensure directory exists
+                await EnsureCompanyDirectoryAsync(companyId);
+
+                // Validate file type for photos (only images)
+                var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp" };
+                if (!allowedTypes.Contains(file.ContentType.ToLower()))
+                {
+                    throw new ArgumentException("Only image files (JPEG, PNG, GIF, WebP) are allowed for photos");
+                }
+
+                // Validate file size (max 5MB for photos)
+                if (file.Length > 5 * 1024 * 1024)
+                {
+                    throw new ArgumentException("Photo file size cannot exceed 5MB");
+                }
+
+                // Generate secure filename with proper extension
+                var fileExtension = Path.GetExtension(file.FileName)?.ToLower();
+                if (string.IsNullOrEmpty(fileExtension))
+                {
+                    // Determine extension from content type if missing
+                    fileExtension = file.ContentType.ToLower() switch
+                    {
+                        "image/jpeg" => ".jpg",
+                        "image/jpg" => ".jpg",
+                        "image/png" => ".png",
+                        "image/gif" => ".gif",
+                        "image/webp" => ".webp",
+                        _ => ".jpg" // default
+                    };
+                }
+
+                var fileName = $"photo_{DateTime.UtcNow:yyyyMMdd_HHmmss}{fileExtension}";
+                var relativePath = Path.Combine("companies", companyId.ToString(), "photos", fileName);
+                var fullPath = Path.Combine(_baseStoragePath, relativePath);
+
+                // Save file
+                using var stream = new FileStream(fullPath, FileMode.Create);
+                await file.CopyToAsync(stream);
+
+                _logger.LogInformation("Saved photo for company {CompanyId}: {FileName} ({Size} bytes, {ContentType})", 
+                    companyId, fileName, file.Length, file.ContentType);
+
+                return relativePath.Replace('\\', '/');
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save photo for company {CompanyId}", companyId);
                 throw;
             }
         }

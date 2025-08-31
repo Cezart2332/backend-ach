@@ -1050,6 +1050,7 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
     {
         CompanyRegisterRequestDto request;
         IFormFile? certificateFile = null;
+        IFormFile? photoFile = null;
 
         // Check if request is multipart/form-data (file upload) or JSON
         if (context.Request.HasFormContentType)
@@ -1067,11 +1068,12 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
                 IsActive = form["IsActive"].ToString() == "1" // Convert string to bool
             };
 
-            // Get the certificate file if present
+            // Get the certificate and photo files if present
             certificateFile = form.Files.GetFile("Certificate");
+            photoFile = form.Files.GetFile("Photo");
             
-            Log.Information("Company registration with file upload - Email: {Email}, Name: {Name}, HasFile: {HasFile}", 
-                request.Email, request.Name, certificateFile != null);
+            Log.Information("Company registration with file upload - Email: {Email}, Name: {Name}, HasCertificate: {HasCertificate}, HasPhoto: {HasPhoto}", 
+                request.Email, request.Name, certificateFile != null, photoFile != null);
         }
         else
         {
@@ -1109,40 +1111,88 @@ app.MapPost("/auth/company-register", async (HttpContext context, IAuthService a
         // First, register the company to get the ID
         var result = await authService.RegisterCompanyAsync(request, null);
         
-        // Handle certificate file upload if present (after company creation)
+        // Handle file uploads if present (after company creation)
         string? certificatePath = null;
-        if (certificateFile != null && certificateFile.Length > 0 && result.Company != null)
+        string? photoPath = null;
+        var uploadErrors = new List<string>();
+
+        if (result.Company != null)
         {
-            try
+            // Handle certificate upload
+            if (certificateFile != null && certificateFile.Length > 0)
             {
-                // Use FileStorageService to save the certificate
-                certificatePath = await fileStorage.SaveCompanyCertificateAsync(certificateFile, result.Company.Id);
-                
-                // Update the company record with the certificate path
-                using var scope = context.RequestServices.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                
-                var company = await dbContext.Companies.FindAsync(result.Company.Id);
-                if (company != null)
+                try
                 {
-                    company.CertificatePath = certificatePath;
-                    await dbContext.SaveChangesAsync();
-                    
+                    certificatePath = await fileStorage.SaveCompanyCertificateAsync(certificateFile, result.Company.Id);
                     Log.Information("Certificate saved for company {CompanyId}: {Path}", result.Company.Id, certificatePath);
                 }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to save certificate for company {CompanyId}", result.Company.Id);
+                    uploadErrors.Add($"Certificate upload failed: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            // Handle photo upload
+            if (photoFile != null && photoFile.Length > 0)
             {
-                Log.Error(ex, "Failed to save certificate for company {CompanyId}", result.Company?.Id);
-                // Don't fail the registration if certificate upload fails
-                Log.Warning("Company registration completed but certificate upload failed - Email: {Email}", request.Email);
+                try
+                {
+                    photoPath = await fileStorage.SaveCompanyPhotoAsync(photoFile, result.Company.Id);
+                    Log.Information("Photo saved for company {CompanyId}: {Path}", result.Company.Id, photoPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to save photo for company {CompanyId}", result.Company.Id);
+                    uploadErrors.Add($"Photo upload failed: {ex.Message}");
+                }
+            }
+
+            // Update the company record with file paths
+            if (!string.IsNullOrEmpty(certificatePath) || !string.IsNullOrEmpty(photoPath))
+            {
+                try
+                {
+                    using var scope = context.RequestServices.CreateScope();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    
+                    var company = await dbContext.Companies.FindAsync(result.Company.Id);
+                    if (company != null)
+                    {
+                        if (!string.IsNullOrEmpty(certificatePath))
+                            company.CertificatePath = certificatePath;
+                        if (!string.IsNullOrEmpty(photoPath))
+                            company.PhotoPath = photoPath;
+                        
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to update company file paths for company {CompanyId}", result.Company.Id);
+                    uploadErrors.Add("Failed to save file paths to database");
+                }
             }
         }
         
-        Log.Information("Company registered successfully - Email: {Email}, CompanyId: {CompanyId}, HasCertificate: {HasCertificate}", 
-            request.Email, result.Company?.Id, !string.IsNullOrEmpty(certificatePath));
+        Log.Information("Company registered successfully - Email: {Email}, CompanyId: {CompanyId}, HasCertificate: {HasCertificate}, HasPhoto: {HasPhoto}, Errors: {ErrorCount}", 
+            request.Email, result.Company?.Id, !string.IsNullOrEmpty(certificatePath), !string.IsNullOrEmpty(photoPath), uploadErrors.Count);
+
+        // Return success response with any upload warnings
+        var response = new
+        {
+            company = result.Company,
+            accessToken = result.AccessToken,
+            refreshToken = result.RefreshToken,
+            uploadStatus = new
+            {
+                certificateUploaded = !string.IsNullOrEmpty(certificatePath),
+                photoUploaded = !string.IsNullOrEmpty(photoPath),
+                errors = uploadErrors
+            }
+        };
             
-        return Results.Created("/auth/company-me", result);
+        return Results.Created("/auth/company-me", response);
     }
     catch (ArgumentException ex)
     {
