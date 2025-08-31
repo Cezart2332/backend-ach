@@ -347,7 +347,7 @@ if (!builder.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>
 app.UseCors();
 
 // Configure static file serving for uploaded files
-var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
 var fileStorageUrlPath = "/files";
 
 // Ensure the upload directory exists
@@ -414,7 +414,7 @@ app.MapGet("/test/file-exists/{locationId}/{fileType}/{fileName}", (int location
     try
     {
         var filePath = $"locations/{locationId}/{fileType}/{fileName}";
-        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
         var fullPath = Path.Combine(fileStorageBasePath, filePath.Replace('/', Path.DirectorySeparatorChar));
         
         var exists = File.Exists(fullPath);
@@ -439,7 +439,7 @@ app.MapGet("/test/list-files/{locationId}", (int locationId) =>
 {
     try
     {
-        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
         var locationPath = Path.Combine(fileStorageBasePath, "locations", locationId.ToString());
         
         var result = new
@@ -471,7 +471,7 @@ app.MapGet("/test/file-storage-diagnostic", async (IFileStorageService fileStora
 {
     try
     {
-        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
         var diagnostics = new List<object>();
         
         // Test 1: Check base directory
@@ -596,7 +596,7 @@ app.MapGet("/test/event-file-storage-diagnostic/{eventId}", async (int eventId, 
 {
     try
     {
-        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+        var fileStorageBasePath = builder.Configuration["FileStorage:BasePath"] ?? "/app/uploads";
         var eventPath = Path.Combine(fileStorageBasePath, "events", eventId.ToString());
         var photosPath = Path.Combine(eventPath, "photos");
 

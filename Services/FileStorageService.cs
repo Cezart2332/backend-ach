@@ -30,7 +30,7 @@ namespace WebApplication1.Services
         {
             _configuration = configuration;
             _logger = logger;
-            _baseStoragePath = _configuration["FileStorage:BasePath"] ?? "/var/www/uploads";
+            _baseStoragePath = _configuration["FileStorage:BasePath"] ?? "/app/uploads";
             _baseUrl = _configuration["FileStorage:BaseUrl"] ?? "https://api.acoomh.ro/files";
         }
 
