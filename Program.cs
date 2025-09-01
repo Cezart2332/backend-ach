@@ -2320,6 +2320,19 @@ app.MapGet("/events/{id}/like-status/{userId}", async (int id, int userId, AppDb
     });
 });
 
+// GET /users/{userId}/likes/count - Get how many likes a user has made
+app.MapGet("/users/{userId}/likes/count", async (int userId, AppDbContext db) =>
+{
+    var user = await db.Users.FindAsync(userId);
+    if (user == null)
+    {
+        return Results.NotFound(new { error = "User not found" });
+    }
+
+    var likesCount = await db.Likes.CountAsync(l => l.UserId == userId);
+    return Results.Ok(new { userId, likesCount });
+}).WithTags("Users").RequireRateLimiting("GeneralPolicy");
+
 // POST /events - Create new event
 app.MapPost("/events", async (HttpContext context, AppDbContext db, IFileStorageService fileStorage) =>
 {
