@@ -50,6 +50,7 @@ namespace WebApplication1.Services
                     LastName = user.LastName,
                     Email = user.Email,
                     Role = "User", // You can extend this based on your user roles
+                    PhoneNumber = user.PhoneNumber,
                     ProfileImage = GetUserProfileImageBase64(user),
                     Scopes = new List<string> { "read", "write" } // Define based on user permissions
                 },

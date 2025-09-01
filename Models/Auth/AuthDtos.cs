@@ -48,6 +48,10 @@ namespace WebApplication1.Models.Auth
         
         [JsonPropertyName("role")]
         public string Role { get; set; } = "User";
+
+        [JsonPropertyName("phoneNumber")]
+        public string? PhoneNumber { get; set; }
+        
         
         [JsonPropertyName("profileImage")]
         public string? ProfileImage { get; set; }

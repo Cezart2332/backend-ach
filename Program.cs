@@ -995,6 +995,7 @@ app.MapGet("/auth/me", async (HttpContext context, AppDbContext db) =>
             FirstName = user.FirstName,
             LastName = user.LastName,
             Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
             Role = user.Role ?? "User",
             ProfileImage = user.ProfileImage?.Length > 0 ? Convert.ToBase64String(user.ProfileImage) : null,
             Scopes = new List<string> { "read", "write" } // Standard user scopes
