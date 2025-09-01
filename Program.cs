@@ -32,6 +32,12 @@ var builder = WebApplication.CreateBuilder(args);
 // Use Serilog
 builder.Host.UseSerilog();
 
+// Remove Kestrel request body size limits (allow large menu uploads)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = null; // Unlimited
+});
+
 builder.Services.AddOpenApi();
 
 // Debug logging - show environment and connection string info
@@ -229,6 +235,14 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 // Add Controllers for compatibility
 builder.Services.AddControllers();
+
+// Allow large multipart uploads (remove MB limits for menu uploads)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = long.MaxValue; // No limit
+    options.ValueLengthLimit = int.MaxValue;
+    options.MultipartHeadersLengthLimit = int.MaxValue;
+});
 
 // Get connection string from configuration - Coolify compatible
 if (!string.IsNullOrEmpty(connectionString))
@@ -3720,6 +3734,7 @@ app.MapGet("/locations/{locationId}/reservations", async (int locationId, AppDbC
                 r.Id,
                 CustomerName = r.CustomerName,
                 CustomerEmail = r.CustomerEmail,
+                CustomerPhone = r.CustomerPhone,
                 ReservationDate = r.ReservationDate.ToString("yyyy-MM-dd"),
                 TimeSlot = r.ReservationTime.ToString(@"hh\:mm"),
                 NumberOfPeople = r.NumberOfPeople,
@@ -3735,6 +3750,7 @@ app.MapGet("/locations/{locationId}/reservations", async (int locationId, AppDbC
         return Results.Problem($"Error fetching location reservations: {ex.Message}");
     }
 });
+
 
 // GET: reservation/available-times/{locationId}?date=...
 app.MapGet("/reservation/available-times/{locationId}", async (int locationId, DateTime date, AppDbContext db) =>
