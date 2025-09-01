@@ -2439,6 +2439,24 @@ app.MapPut("/events/{id}", async (int id, HttpRequest request, AppDbContext db, 
         eventItem.Description = form["description"].ToString();
         eventItem.Tags = form["tags"].ToString() ?? "";
 
+        // Optional: update event date if provided
+        if (form.ContainsKey("eventDate") && !string.IsNullOrWhiteSpace(form["eventDate"]))
+        {
+            var dateRaw = form["eventDate"].ToString().Trim();
+            DateTime parsedDate;
+            var dateFormats = new[] { "yyyy-MM-dd", "dd-MM-yyyy", "dd/MM/yyyy", "MM/dd/yyyy", "yyyy/MM/dd" };
+            if (DateTime.TryParseExact(dateRaw, dateFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsedDate)
+                || DateTime.TryParse(dateRaw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsedDate))
+            {
+                eventItem.EventDate = parsedDate.Date;
+                Log.Information("Updated EventDate for event {EventId} -> {EventDate}", id, eventItem.EventDate);
+            }
+            else
+            {
+                return Results.BadRequest(new { error = $"Invalid eventDate: '{dateRaw}'" });
+            }
+        }
+
         // Handle photo upload if provided
         if (form.Files.Count > 0)
         {
