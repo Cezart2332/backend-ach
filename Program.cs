@@ -398,6 +398,164 @@ app.MapGet("/health", () => new {
     environment = app.Environment.EnvironmentName 
 });
 
+// ==================== USERS SEARCH AND FRIENDS ENDPOINTS ====================
+
+// GET /users/search?q=term&page=1&limit=20
+app.MapGet("/users/search", async (string? q, int? page, int? limit, AppDbContext db) =>
+{
+    var query = db.Users.Where(u => u.IsActive);
+
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var ql = q.Trim().ToLower();
+        query = query.Where(u =>
+            (u.Username != null && u.Username.ToLower().Contains(ql)) ||
+            (u.FirstName != null && u.FirstName.ToLower().Contains(ql)) ||
+            (u.LastName != null && u.LastName.ToLower().Contains(ql)) ||
+            (u.Email != null && u.Email.ToLower().Contains(ql))
+        );
+    }
+
+    var pageNum = Math.Max(page ?? 1, 1);
+    var limitNum = Math.Min(Math.Max(limit ?? 20, 1), 50); // cap at 50
+    var skip = (pageNum - 1) * limitNum;
+
+    var total = await query.CountAsync();
+
+    var users = await query
+        .OrderBy(u => u.Username)
+        .Skip(skip)
+        .Take(limitNum)
+        .Select(u => new {
+            u.Id,
+            u.Username,
+            u.FirstName,
+            u.LastName,
+            u.Email,
+            u.PhoneNumber
+        })
+        .ToListAsync();
+
+    return Results.Ok(new {
+        data = users,
+        pagination = new {
+            page = pageNum,
+            limit = limitNum,
+            total,
+            totalPages = (int)Math.Ceiling((double)total / limitNum)
+        }
+    });
+}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Users");
+
+// GET /users/{id}
+app.MapGet("/users/{id:int}", async (int id, AppDbContext db) =>
+{
+    var user = await db.Users
+        .Where(u => u.Id == id && u.IsActive)
+        .Select(u => new {
+            u.Id,
+            u.Username,
+            u.FirstName,
+            u.LastName,
+            u.Email,
+            u.PhoneNumber
+        })
+        .FirstOrDefaultAsync();
+
+    return user is null ? Results.NotFound() : Results.Ok(user);
+}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Users");
+
+// Helper: normalize friendship pair
+static (int A, int B) NormalizePair(int x, int y) => (Math.Min(x, y), Math.Max(x, y));
+
+// GET /friends/status?userId=123
+app.MapGet("/friends/status", async (int userId, HttpContext context, AppDbContext db) =>
+{
+    var sub = context.User.FindFirst("sub")?.Value;
+    if (string.IsNullOrEmpty(sub) || !int.TryParse(sub, out var currentUserId))
+        return Results.Unauthorized();
+
+    if (userId <= 0 || userId == currentUserId)
+        return Results.Ok(new { status = "none" });
+
+    var (a, b) = NormalizePair(currentUserId, userId);
+    var fr = await db.Friendships.FirstOrDefaultAsync(f => f.UserAId == a && f.UserBId == b);
+    if (fr == null)
+        return Results.Ok(new { status = "none" });
+
+    if (fr.IsAccepted)
+        return Results.Ok(new { status = "friends" });
+
+    // Pending: who requested it?
+    if (fr.RequestedByUserId == currentUserId)
+        return Results.Ok(new { status = "pending" });
+    else
+        return Results.Ok(new { status = "requested" });
+}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Friends");
+
+// POST /friends/request { targetUserId }
+app.MapPost("/friends/request", async (HttpContext context, AppDbContext db) =>
+{
+    var sub = context.User.FindFirst("sub")?.Value;
+    if (string.IsNullOrEmpty(sub) || !int.TryParse(sub, out var currentUserId))
+        return Results.Unauthorized();
+
+    Dictionary<string, int>? req;
+    try
+    {
+        req = await context.Request.ReadFromJsonAsync<Dictionary<string, int>>();
+    }
+    catch
+    {
+        return Results.BadRequest(new { error = "Invalid JSON payload" });
+    }
+
+    if (req == null || !req.TryGetValue("targetUserId", out var targetUserId) || targetUserId <= 0)
+        return Results.BadRequest(new { error = "targetUserId is required" });
+
+    if (targetUserId == currentUserId)
+        return Results.BadRequest(new { error = "Cannot send friend request to yourself" });
+
+    // Ensure target user exists and is active
+    var targetExists = await db.Users.AnyAsync(u => u.Id == targetUserId && u.IsActive);
+    if (!targetExists)
+        return Results.NotFound(new { error = "Target user not found" });
+
+    var (a, b) = NormalizePair(currentUserId, targetUserId);
+    var existing = await db.Friendships.FirstOrDefaultAsync(f => f.UserAId == a && f.UserBId == b);
+
+    if (existing != null)
+    {
+        if (existing.IsAccepted)
+        {
+            return Results.Ok(new { status = "friends" });
+        }
+        // If the other user requested me, accept now
+        if (existing.RequestedByUserId != currentUserId)
+        {
+            existing.IsAccepted = true;
+            existing.AcceptedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { status = "friends" });
+        }
+        // Already pending from me
+        return Results.Ok(new { status = "pending" });
+    }
+
+    var friendship = new Friendship
+    {
+        UserAId = a,
+        UserBId = b,
+        RequestedByUserId = currentUserId,
+        IsAccepted = false,
+        CreatedAt = DateTime.UtcNow
+    };
+    db.Friendships.Add(friendship);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/friends/status?userId={targetUserId}", new { status = "pending" });
+}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Friends");
+
 app.MapGet("/health/db", async (AppDbContext context) =>
 {
     try
@@ -1855,11 +2013,13 @@ else
 
 // ==================== RESTORED ENDPOINTS - ALL YOUR ORIGINAL ENDPOINTS ====================
 
-app.MapGet("/users/{id:int}", async (int id, AppDbContext db) =>
+app.MapGet("/admin/users/{id:int}/raw", async (int id, AppDbContext db) =>
     await db.Users.FindAsync(id)
         is User user
         ? Results.Ok(user)
-        : Results.NotFound());
+        : Results.NotFound())
+    .RequireAuthorization("AdminPolicy")
+    .WithTags("Users");
 
 app.MapPost("/users", async (HttpRequest req, AppDbContext db) =>
 {
@@ -1922,52 +2082,7 @@ app.MapPut("/users/{id:int}", async (int id, User input, AppDbContext db) =>
     return Results.NoContent();
 });
 
-// Search users (as-you-type). Example: /users/search?q=jo&page=1&limit=10
-app.MapGet("/users/search", async (string? q, int? page, int? limit, AppDbContext db) =>
-{
-    var query = db.Users.Where(u => u.IsActive);
-
-    if (!string.IsNullOrWhiteSpace(q))
-    {
-        var ql = q.Trim().ToLower();
-        query = query.Where(u =>
-            (u.Username != null && u.Username.ToLower().Contains(ql)) ||
-            (u.FirstName != null && u.FirstName.ToLower().Contains(ql)) ||
-            (u.LastName != null && u.LastName.ToLower().Contains(ql)) ||
-            (u.Email != null && u.Email.ToLower().Contains(ql))
-        );
-    }
-
-    var pageNum = Math.Max(page ?? 1, 1);
-    var limitNum = Math.Min(Math.Max(limit ?? 10, 1), 50); // cap at 50
-    var skip = (pageNum - 1) * limitNum;
-
-    var total = await query.CountAsync();
-
-    var users = await query
-        .OrderBy(u => u.Username)
-        .Skip(skip)
-        .Take(limitNum)
-        .Select(u => new {
-            u.Id,
-            u.Username,
-            u.FirstName,
-            u.LastName,
-            u.Email,
-            u.PhoneNumber
-        })
-        .ToListAsync();
-
-    return Results.Ok(new {
-        data = users,
-        pagination = new {
-            page = pageNum,
-            limit = limitNum,
-            total,
-            totalPages = (int)Math.Ceiling((double)total / limitNum)
-        }
-    });
-}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Users");
+// Removed duplicate /users/search endpoint to resolve route conflict.
 
 // ==================== USER ENDPOINTS ====================
 app.MapPost("/companies", async (HttpRequest req, AppDbContext db) =>
