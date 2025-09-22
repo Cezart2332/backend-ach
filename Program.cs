@@ -2320,6 +2320,99 @@ app.MapGet("/events/{id}/like-status/{userId}", async (int id, int userId, AppDb
     });
 });
 
+// ==================== FRIENDS ENDPOINTS ====================
+static int? GetUserIdFromClaims(HttpContext ctx)
+{
+    var id = ctx.User.FindFirst("sub")?.Value
+             ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+             ?? ctx.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+    return int.TryParse(id, out var uid) ? uid : (int?)null;
+}
+
+// List friends for current user (only accepted friendships)
+app.MapGet("/friends", async (HttpContext ctx, AppDbContext db) =>
+{
+    var uid = GetUserIdFromClaims(ctx);
+    if (uid is null) return Results.Unauthorized();
+
+    var friends = await db.Friendships
+        .Where(f => f.IsAccepted && (f.UserAId == uid || f.UserBId == uid))
+        .Select(f => new {
+            id = f.Id,
+            friendUserId = f.UserAId == uid ? f.UserBId : f.UserAId,
+            isAccepted = f.IsAccepted,
+            createdAt = f.CreatedAt,
+            acceptedAt = f.AcceptedAt
+        })
+        .ToListAsync();
+
+    return Results.Ok(friends);
+}).RequireAuthorization().WithTags("Friends");
+
+// Create a friendship request or accept if reciprocal request exists
+app.MapPost("/friends/{targetUserId:int}", async (int targetUserId, HttpContext ctx, AppDbContext db) =>
+{
+    var uid = GetUserIdFromClaims(ctx);
+    if (uid is null) return Results.Unauthorized();
+    if (uid == targetUserId) return Results.BadRequest(new { error = "Cannot friend yourself." });
+
+    // Ensure target exists
+    var targetExists = await db.Users.AnyAsync(u => u.Id == targetUserId && u.IsActive);
+    if (!targetExists) return Results.NotFound(new { error = "Target user not found." });
+
+    // Normalize pair (A < B)
+    var a = Math.Min(uid.Value, targetUserId);
+    var b = Math.Max(uid.Value, targetUserId);
+
+    var existing = await db.Friendships.FirstOrDefaultAsync(f => f.UserAId == a && f.UserBId == b);
+    if (existing != null)
+    {
+        if (!existing.IsAccepted && existing.RequestedByUserId != uid)
+        {
+            // Accept the pending request
+            existing.IsAccepted = true;
+            existing.AcceptedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { message = "Friend request accepted", friendshipId = existing.Id });
+        }
+        return Results.Conflict(new { error = "Friendship already exists or pending." });
+    }
+
+    var friendship = new Friendship
+    {
+        UserAId = a,
+        UserBId = b,
+        RequestedByUserId = uid.Value,
+        IsAccepted = false,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    db.Friendships.Add(friendship);
+    await db.SaveChangesAsync();
+    return Results.Created($"/friends/{friendship.Id}", new { id = friendship.Id, status = "pending" });
+}).RequireAuthorization().WithTags("Friends");
+
+// Remove friendship (either direction)
+app.MapDelete("/friends/{targetUserId:int}", async (int targetUserId, HttpContext ctx, AppDbContext db) =>
+{
+    var uid = GetUserIdFromClaims(ctx);
+    if (uid is null) return Results.Unauthorized();
+    if (uid == targetUserId) return Results.BadRequest(new { error = "Cannot unfriend yourself." });
+
+    var a = Math.Min(uid.Value, targetUserId);
+    var b = Math.Max(uid.Value, targetUserId);
+
+    var existing = await db.Friendships.FirstOrDefaultAsync(f => f.UserAId == a && f.UserBId == b);
+    if (existing == null)
+    {
+        return Results.NotFound(new { error = "Friendship not found." });
+    }
+
+    db.Friendships.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization().WithTags("Friends");
+
 // GET /users/{userId}/likes/count - Get how many likes a user has made
 app.MapGet("/users/{userId}/likes/count", async (int userId, AppDbContext db) =>
 {

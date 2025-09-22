@@ -20,6 +20,7 @@ namespace WebApplication1.Models
         public DbSet<MenuItem> MenuItems { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<BugReport> BugReports { get; set; }
+    public DbSet<Friendship> Friendships { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -186,6 +187,30 @@ namespace WebApplication1.Models
                 
             modelBuilder.Entity<BugReport>()
                 .HasIndex(br => br.Username);
+
+            // Configure Friendships
+            modelBuilder.Entity<Friendship>().ToTable("friendships");
+            modelBuilder.Entity<Friendship>()
+                .HasOne(f => f.UserA)
+                .WithMany()
+                .HasForeignKey(f => f.UserAId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Friendship>()
+                .HasOne(f => f.UserB)
+                .WithMany()
+                .HasForeignKey(f => f.UserBId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Friendship>()
+                .HasIndex(f => new { f.UserAId, f.UserBId })
+                .IsUnique();
+
+            modelBuilder.Entity<Friendship>()
+                .HasIndex(f => f.IsAccepted);
+
+            modelBuilder.Entity<Friendship>()
+                .HasIndex(f => f.CreatedAt);
         }
     }
 }
