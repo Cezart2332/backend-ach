@@ -1922,6 +1922,53 @@ app.MapPut("/users/{id:int}", async (int id, User input, AppDbContext db) =>
     return Results.NoContent();
 });
 
+// Search users (as-you-type). Example: /users/search?q=jo&page=1&limit=10
+app.MapGet("/users/search", async (string? q, int? page, int? limit, AppDbContext db) =>
+{
+    var query = db.Users.Where(u => u.IsActive);
+
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var ql = q.Trim().ToLower();
+        query = query.Where(u =>
+            (u.Username != null && u.Username.ToLower().Contains(ql)) ||
+            (u.FirstName != null && u.FirstName.ToLower().Contains(ql)) ||
+            (u.LastName != null && u.LastName.ToLower().Contains(ql)) ||
+            (u.Email != null && u.Email.ToLower().Contains(ql))
+        );
+    }
+
+    var pageNum = Math.Max(page ?? 1, 1);
+    var limitNum = Math.Min(Math.Max(limit ?? 10, 1), 50); // cap at 50
+    var skip = (pageNum - 1) * limitNum;
+
+    var total = await query.CountAsync();
+
+    var users = await query
+        .OrderBy(u => u.Username)
+        .Skip(skip)
+        .Take(limitNum)
+        .Select(u => new {
+            u.Id,
+            u.Username,
+            u.FirstName,
+            u.LastName,
+            u.Email,
+            u.PhoneNumber
+        })
+        .ToListAsync();
+
+    return Results.Ok(new {
+        data = users,
+        pagination = new {
+            page = pageNum,
+            limit = limitNum,
+            total,
+            totalPages = (int)Math.Ceiling((double)total / limitNum)
+        }
+    });
+}).RequireAuthorization().RequireRateLimiting("GeneralPolicy").WithTags("Users");
+
 // ==================== USER ENDPOINTS ====================
 app.MapPost("/companies", async (HttpRequest req, AppDbContext db) =>
 {
